@@ -55,13 +55,18 @@ void TestRecompiler::RecompileTests(const char* srcDirectoryPath, const char* ds
 
             for (auto& fn : recompiler.functions)
             {
-                if (recompiler.Recompile(fn))
+                const size_t problemCount = recompiler.problems.size();
+                const bool recompiled = recompiler.Recompile(fn);
+                for (size_t i = problemCount; i < recompiler.problems.size(); i++)
+                    fmt::println("{}: {}", stem, recompiler.problems[i]);
+
+                if (recompiled && recompiler.problems.size() == problemCount)
                 {
                     functions[stem].emplace(fn.base);
                 }
                 else
                 {
-                    fmt::println("Function {:X} in {} has unimplemented instructions", fn.base, stem);
+                    fmt::println("Function {:X} in {} has problems (above); not tested", fn.base, stem);
                 }
             }
             stem += ".cpp";

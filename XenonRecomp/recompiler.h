@@ -34,6 +34,15 @@ struct Recompiler
     std::string out;
     size_t cppFileIndex = 0;
     RecompilerConfig config;
+    // Everything the generated code can't do faithfully: printed as a summary at the end, and
+    // the generator fails unless allow_unresolved is set.
+    std::vector<std::string> problems;
+
+    template<class... Args>
+    void problem(fmt::format_string<Args...> fmt, Args&&... args)
+    {
+        problems.push_back(fmt::vformat(fmt.get(), fmt::make_format_args(args...)));
+    }
 
     bool LoadConfig(const std::string_view& configFilePath);
 
@@ -64,7 +73,8 @@ struct Recompiler
 
     bool Recompile(const Function& fn);
 
-    void Recompile(const std::filesystem::path& headerFilePath);
+    // Returns false when there were problems and allow_unresolved isn't set.
+    bool Recompile(const std::filesystem::path& headerFilePath);
 
     void SaveCurrentOutData(const std::string_view& name = std::string_view());
 };

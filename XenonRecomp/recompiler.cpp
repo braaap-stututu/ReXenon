@@ -363,10 +363,10 @@ bool Recompiler::Recompile(
             return "ea";
         };
 
-    // TODO (Sajid): Check for out of bounds access
+    // A store followed by eieio is an MMIO store. Don't read past the function's end.
     auto mmioStore = [&]() -> bool
         {
-            return *(data + 1) == c_eieio;
+            return base + 4 < fn.base + fn.size && *(data + 1) == c_eieio;
         };
 
     auto printFunctionCall = [&](uint32_t address)
@@ -399,7 +399,10 @@ bool Recompiler::Recompile(
                 }
                 else
                 {
-                    println("\t// ERROR {:X}", address);
+                    // Not a function start: the target is inside another function (a shared epilogue
+                    // or a mis-sized function). Trap instead of silently returning.
+                    println("\tPPC_UNRESOLVED_BRANCH(0x{:X}, 0x{:X});", base, address);
+                    problem("{:X} (in {:X}): branch to {:X}, which isn't a function start", base, fn.base, address);
                 }
             }
         };
@@ -619,8 +622,8 @@ bool Recompiler::Recompile(
                 auto label = switchTable->second.labels[i];
                 if (label < fn.base || label >= fn.base + fn.size)
                 {
-                    println("\t\t// ERROR: 0x{:X}", label);
-                    fmt::println("ERROR: Switch case at {:X} is trying to jump outside function: {:X}", base, label);
+                    println("\t\tPPC_UNRESOLVED_BRANCH(0x{:X}, 0x{:X});", base, label);
+                    problem("{:X} (in {:X}): switch case {} jumps outside the function, to {:X}", base, fn.base, i, label);
                     println("\t\treturn;");
                 }
                 else
@@ -826,10 +829,11 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_DCBZ:
+        // Xenon's cache line is 128 bytes and plain dcbz clears all of it (32 bytes is the G2/603e line).
         print("\tmemset(base + ((");
         if (insn.operands[0] != 0)
             print("{}.u32 + ", r(insn.operands[0]));
-        println("{}.u32) & ~31), 0, 32);", r(insn.operands[1]));
+        println("{}.u32) & ~127), 0, 128);", r(insn.operands[1]));
         break;
 
     case PPC_INST_DCBZL:
@@ -911,12 +915,12 @@ bool Recompiler::Recompile(
 
     case PPC_INST_FCTID:
         printSetFlushMode(false);
-        println("\t{}.s64 = ({}.f64 > double(LLONG_MAX)) ? LLONG_MAX : simde_mm_cvtsd_si64(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
+        println("\t{}.s64 = ({}.f64 >= double(LLONG_MAX)) ? LLONG_MAX : simde_mm_cvtsd_si64(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
         break;
 
     case PPC_INST_FCTIDZ:
         printSetFlushMode(false);
-        println("\t{}.s64 = ({}.f64 > double(LLONG_MAX)) ? LLONG_MAX : simde_mm_cvttsd_si64(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
+        println("\t{}.s64 = ({}.f64 >= double(LLONG_MAX)) ? LLONG_MAX : simde_mm_cvttsd_si64(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
         break;
 
     case PPC_INST_FCTIWZ:
@@ -1283,9 +1287,23 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_MFOCRF:
-        // TODO: don't hardcode to cr6
-        println("\t{}.u64 = ({}.lt << 7) | ({}.gt << 6) | ({}.eq << 5) | ({}.so << 4);", r(insn.operands[0]), cr(6), cr(6), cr(6), cr(6));
+    {
+        // FXM has one bit set, 0x80 >> n for CR field n; that field lands in its mfcr position, the rest is 0.
+        const uint32_t fxm = insn.operands[1] & 0xFF;
+        if (fxm == 0 || (fxm & (fxm - 1)) != 0)
+        {
+            println("\tPPC_UNIMPLEMENTED(0x{:X}, \"mfocrf with FXM 0x{:X}\");", base, fxm);
+            problem("{:X} (in {:X}): mfocrf with FXM 0x{:X} (not a single field)", base, fn.base, fxm);
+            break;
+        }
+        uint32_t field = 0;
+        while ((0x80u >> field) != fxm)
+            ++field;
+        const uint32_t shift = 4 * (7 - field);
+        println("\t{}.u64 = ({}.lt << {}) | ({}.gt << {}) | ({}.eq << {}) | ({}.so << {});", r(insn.operands[0]),
+            cr(field), shift + 3, cr(field), shift + 2, cr(field), shift + 1, cr(field), shift);
         break;
+    }
 
     case PPC_INST_MFTB:
         println("\t{}.u64 = __rdtsc();", r(insn.operands[0]));
@@ -1310,7 +1328,10 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_MTFSF:
-        println("\tctx.fpscr.storeFromGuest({}.u32);", f(insn.operands[1]));
+        // FPSCR is modelled as its rounding mode only (RN, bits 30-31 = field 7, FM bit 0x01).
+        // A mask without field 7 leaves RN alone; L=1 (ISA 2.05, not on Xenon) writes every field.
+        if ((insn.operands[0] & 0x01) || insn.operands[2])
+            println("\tctx.fpscr.storeFromGuest({}.u32);", f(insn.operands[1]));
         break;
 
     case PPC_INST_MTLR:
@@ -2110,7 +2131,8 @@ bool Recompiler::Recompile(
             break;
 
         default:
-            println("\t__builtin_debugtrap();");
+            println("\tPPC_UNIMPLEMENTED(0x{:X}, \"{} type {}\");", base, insn.opcode->name, insn.operands[2]);
+            problem("{:X} (in {:X}): {} type {} isn't implemented", base, fn.base, insn.opcode->name, insn.operands[2]);
             break;
         }
         break;
@@ -2388,7 +2410,8 @@ bool Recompiler::Recompile(
             break;
 
         default:
-            println("\t__builtin_debugtrap();");
+            println("\tPPC_UNIMPLEMENTED(0x{:X}, \"{} type {}\");", base, insn.opcode->name, insn.operands[2] >> 2);
+            problem("{:X} (in {:X}): {} type {} isn't implemented", base, fn.base, insn.opcode->name, insn.operands[2] >> 2);
             break;
         }
         break;
@@ -2594,7 +2617,11 @@ bool Recompiler::Recompile(const Function& fn)
             println("\t// {}", insn.op_str);
 #if 1
             if (*data != 0)
-                fmt::println("Unable to decode instruction {:X} at {:X}", *data, base);
+            {
+                println("\tPPC_UNIMPLEMENTED(0x{:X}, \"undecodable 0x{:08X}\");", base, *data);
+                problem("{:X} (in {:X}): can't decode instruction word {:08X}", base, fn.base, *data);
+                allRecompiled = false;
+            }
 #endif
         }
         else
@@ -2604,7 +2631,8 @@ bool Recompiler::Recompile(const Function& fn)
 
             if (!Recompile(fn, base, insn, data, switchTable, localVariables, csrState))
             {
-                fmt::println("Unrecognized instruction at 0x{:X}: {}", base, insn.opcode->name);
+                println("\tPPC_UNIMPLEMENTED(0x{:X}, \"{}\");", base, insn.opcode->name);
+                problem("{:X} (in {:X}): {} isn't implemented", base, fn.base, insn.opcode->name);
                 allRecompiled = false;
             }
         }
@@ -2675,7 +2703,7 @@ bool Recompiler::Recompile(const Function& fn)
     return allRecompiled;
 }
 
-void Recompiler::Recompile(const std::filesystem::path& headerFilePath)
+bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
 {
     out.reserve(10 * 1024 * 1024);
 
@@ -2792,6 +2820,19 @@ void Recompiler::Recompile(const std::filesystem::path& headerFilePath)
     }
 
     SaveCurrentOutData();
+
+    if (!problems.empty())
+    {
+        fmt::println("{} {} (each traps at run time):", problems.size(), problems.size() == 1 ? "problem" : "problems");
+        for (auto& p : problems)
+            fmt::println("  {}", p);
+        if (!config.allowUnresolved)
+        {
+            fmt::println("ERROR: failing because of the problems above (set allow_unresolved = true in [main] to accept them)");
+            return false;
+        }
+    }
+    return true;
 }
 
 void Recompiler::SaveCurrentOutData(const std::string_view& name)

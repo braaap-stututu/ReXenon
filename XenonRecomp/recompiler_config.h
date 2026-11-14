@@ -39,6 +39,9 @@ struct RecompilerConfig
     bool crRegistersAsLocalVariables = false;
     bool nonArgumentRegistersAsLocalVariables = false;
     bool nonVolatileRegistersAsLocalVariables = false;
+    // Report unresolved branches and unimplemented instructions as warnings instead of failing.
+    // The generated code traps at each one either way (PPC_UNRESOLVED_BRANCH / PPC_UNIMPLEMENTED).
+    bool allowUnresolved = false;
     uint32_t restGpr14Address = 0;
     uint32_t saveGpr14Address = 0;
     uint32_t restFpr14Address = 0;

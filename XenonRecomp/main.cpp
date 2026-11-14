@@ -41,7 +41,8 @@ int main(int argc, char* argv[])
 #endif
             ;
 
-        recompiler.Recompile(headerFilePath);
+        if (!recompiler.Recompile(headerFilePath))
+            return EXIT_FAILURE;
     }
     else
     {

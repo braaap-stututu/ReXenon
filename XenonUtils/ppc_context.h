@@ -109,6 +109,16 @@
 
 #define PPC_LOOKUP_FUNC(x, y) *(PPCFunc**)(x + PPC_IMAGE_BASE + PPC_IMAGE_SIZE + (uint64_t(uint32_t(y) - PPC_CODE_BASE) * 2))
 
+// Emitted where the recompiler couldn't produce faithful code; both trap by default. A port can
+// define them (before this header) to log the guest addresses first. They must not return.
+#ifndef PPC_UNRESOLVED_BRANCH
+#define PPC_UNRESOLVED_BRANCH(from, to) __builtin_trap()
+#endif
+
+#ifndef PPC_UNIMPLEMENTED
+#define PPC_UNIMPLEMENTED(address, what) __builtin_trap()
+#endif
+
 #ifndef PPC_CALL_INDIRECT_FUNC
 #define PPC_CALL_INDIRECT_FUNC(x) (PPC_LOOKUP_FUNC(base, x))(ctx, base)
 #endif
