@@ -544,3 +544,143 @@ Three opt-in changes, all off by default. With them off, both games' output is b
   - After every fix, both games regenerate with 0 problems and output identical to the reviewed version.
   - Review input: `review20-input.patch`.
 - **To try on FM2 (FX A/B):** `inline_register_thunks` and `elide_return_lr`, separately.
+
+## Step 21 (2026-11-14 morning, FX): measure FM2 with non-volatile guest loads/stores (roadmap item 5 step 2's first step)
+
+The research said to measure a whole build with `volatile` stripped before writing the poll-loop analysis.
+
+**Setup:**
+- B used FM2 HEAD 7c7c412 with `fm2_nonvolatile.h` (saved here) force-included. That header redefines `PPC_LOAD_*`/`PPC_STORE_*` without `volatile`; MMIO stores stay volatile. It was built in a separate folder (`build/nv`, since deleted). `out/ppc_tu4` was not touched.
+- A was the deployed HEAD exe, the same file by hash.
+- B's exe is 3.4% smaller (42.19 vs 43.68 MB).
+- Runs: B warm-up, then A and B alternating, 6 each. FX-8350 + GTX 970, benchmark race at 720p, FM2_PERF off.
+- Every run was valid: draw counts vary in every log.
+- B booted, raced and quit normally. No hang was seen in this race, though one could still lurk elsewhere.
+
+| median of 6 | A (volatile) | B (non-volatile) |
+|---|---|---|
+| fps | 89.0 (83.8–94.0) | 87.4 (80.6–91.5) |
+| 1% low | 54.5 (53.3–54.9) | 51.6 (51.4–52.2) |
+| 0.1% low | 43.4 | 40.1 |
+| slowest frame | 23.6 ms | 24.9 ms |
+
+**Result:**
+- No gain. The average is −1.8%, within the noise.
+- The 1% lows are 5% worse in every B run; the ranges don't overlap.
+- The research's estimate of 1–4% (recompiled code only, CPU-bound machines) doesn't show on the FX, where the main thread and the CP are both near their limit.
+- The worse lows may come from changed load/store ordering in code the guest threads share, or from code layout. Not investigated.
+
+**Decision:** item 5 step 2 is parked. The loop analysis it would need isn't worth building. Item 8 (r14–r31 as locals) was gated on item 5 and is parked too. The FX run list was restored and fm2-nv.exe removed from it.
+
+## Step 22 (2026-11-14 morning, FX): FM2 built against ReXenon output, first game test
+
+**Setup:**
+- ReXenon f1c5352 generated FM2's title-update code from `config/fm2_tu4.toml` (no options changed) into `D:\fm2-port\out\ppc_tu4_rx`. `out/ppc_tu4` was not touched.
+  - 0 problems, 204 files.
+  - Compared with `out/ppc_tu4`: one function added (`sub_82773580`), none removed, 4,685 with different code.
+- Port changes in `D:\fm2-port`, uncommitted on main:
+  1. CMakeLists: `-DFM2_PPC_DIR=<folder>` overrides the code folder.
+  2. `src/ppc_hooks.h`: `#define PPC_MFTB() Fm2Timebase()`.
+  3. `src/hooks/fibers.cpp`: Fatal hook `sub_82756590` (TU `sub_82773580`, the fiber register swap that ReXenon split off).
+- The XenonRecomp build is unaffected by these changes.
+- Built in `build/rx`: clean, exe 43.49 MB against 43.68 MB.
+- A review (2 reviewers plus refuters) found no defects. It confirmed:
+  - `PPCContext`, `ppc_config.h`, the import set and the hook targets are unchanged;
+  - mftb goes through `Fm2Timebase` at all 16 sites;
+  - `sub_82773580` is only reachable from the hooked SwitchToFiber.
+  The one finding (half-float unpack of values above 65504) was refuted: the same inputs come back non-finite as before.
+
+**FX game test:** warm-up, then 5 rounds of A (HEAD exe, XenonRecomp) and R (ReXenon), benchmark race at 720p.
+- R boots, goes through the menus, races and quits every time. No Fatal or crash, and draw counts vary in every run.
+- Both builds log the same one harmless line: unimplemented NetDll_XNetInAddrToString.
+
+| median of 5 | A (XenonRecomp) | R (ReXenon) |
+|---|---|---|
+| fps | 86.5 (82.7–89.4) | 82.0 (68.0–85.7) |
+| 1% low | 54.1 (41.7–55.4) | 44.6 (41.4–52.0) |
+| 0.1% low | 42.3 | 39.7 |
+| slowest frame | 23.6 ms | 25.2 ms |
+
+**Result:**
+- R works but looks about 5% slower, with worse lows. The ranges overlap, so this needs confirming.
+- Not checked yet: a picture comparison. The tour's CAPTURE step dumps into the install folder, and the FX's C: had only 75 MB free. NVIDIA's DXCache grew 304 MB during these runs.
+- Before switching, find what in the 4,685 changed functions costs time. Candidates:
+  - exact vmaxfp/vminfp (NaN and signed zero);
+  - LR stored on both paths of conditional calls;
+  - the moved FP-mode switches;
+  - the new compiler barriers;
+  - the fall-through tail calls.
+  A sampling profile of A and R on the FX, or a build that reverts one ReXenon change at a time, would find it.
+
+## Correction to steps 21 and 22: the A exe wasn't HEAD (found 2026-11-14 11:00)
+
+The "A" exe in both tests was `build/tu/fm2.exe` from 2026-11-13 21:35, the same file as the FX's `build\cp\fm2.exe`. It was built while `src/gpu/renderer.cpp` still held the command-processor fast paths, which were tested that evening and then reverted at 22:04:
+- the SetNativeMsaa early return;
+- the PS-edit "ever any" flag;
+- the per-draw pass-geometry cache;
+- the `FM2_LOCKED_DRAW` and `FM2_PASS_GEOM_PER_CALL` switches.
+
+The strings are in that exe and not in HEAD builds. B (non-volatile) and R (ReXenon) were built from HEAD's renderer, so both comparisons mixed a renderer difference in with the change under test.
+
+An independent check looked at the first Timeline segment of benchmark.txt, which is much less noisy than the average:
+- every run of the old A gives 63–65 fps;
+- every HEAD-renderer build gives 61–62 (B and R alike);
+- the two ranges don't overlap.
+
+So the ~4–5% gaps in steps 21 and 22 are mostly that renderer difference. Neither result stands, including "volatile removal: no gain, lows −5%".
+
+Codegen check for step 22:
+- Hot functions whose source is unchanged compile to identical machine code in both builds.
+- There is no global change: same prologue, same ctx access, and 26 barrier sites in both.
+- The one function that is slower beyond the noise is `sub_82664CB0`, at +0.04 ms per frame (about 0.3%). It has fewer `ldmxcsr` in R (28 against 33), because ReXenon moved its flush-mode switches. Why it got slower is unknown.
+- The profiler (FM2_SAMPLE_THREAD) also costs R more than A (Timeline segment 1: 59 profiled against 61–62).
+
+Redo: A was rebuilt from the current tree (`build/tu`, 11:11; the old exe was kept as `build/tu/fm2-1113-cpfast.exe`). It is now on the FX as `build\cp\fm2.exe`, and a 10-round A/R run is going.
+
+## Step 22 redone (11:12–11:57): ReXenon against a HEAD baseline
+
+- A: `build/tu` rebuilt from the current tree, i.e. HEAD 7c7c412 plus the uncommitted port changes, which do nothing with XenonRecomp output.
+- R: ReXenon, unchanged from step 22.
+- Run order: A warm-up, then 10 rounds of A and R alternating, FX at 720p.
+- All 21 runs are valid (13 distinct draw counts each), with no Fatal or crash.
+
+| median of 10 | A (XenonRecomp) | R (ReXenon) | Mann-Whitney |
+|---|---|---|---|
+| fps | 85.2 (78.5–91.0) | 84.5 (77.8–91.1), −0.9% | p = 0.55 |
+| 1% low | 51.5 | 52.2 | p = 0.21 |
+| 0.1% low | 40.1 | 41.4 | p = 0.45 |
+| Timeline segment 1 | 61.0 (sd 0.57) | 62.0 (sd 0.48), +1.6% | p = 0.013 |
+
+**Result:** ReXenon's FM2 output is at least as fast as XenonRecomp's. The only significant difference is R's +1.6% in the low-noise first segment. The earlier "~5% slower" came from the stale baseline.
+
+**Still to do before switching:**
+- a picture check (tour CAPTURE in a race, A against R);
+- committing the port changes.
+
+The volatile A/B (step 21) needs redoing against this baseline.
+
+The FX's `build\cp\fm2.exe` is now this HEAD build. The old exe is kept locally as `build/tu/fm2-1113-cpfast.exe`.
+
+## Step 23 (12:20–12:47, FX): picture check, A (XenonRecomp) against R (ReXenon)
+
+**Method:** the tour's CAPTURE step dumped one frame per run from both builds, at two points:
+- the main menu (WAIT:7, START, IDLE, CAPTURE);
+- the benchmark race at RACE:20.
+
+This needed a temporary `FM2_TOUR_OVERRIDE` line in the FX's perf-test.cmd. It has been removed again; the FX scripts are as before and fm2-rx.exe is deleted.
+
+**Results** (side-by-side images in `pics/`):
+- **Menu:** 0.2% of pixels differ by more than 16, all in the animated ring. Otherwise identical.
+- **Race:** frames captured 4 ms apart in race time (34.452 / 34.456 s), with 1517 and 1504 draws. The HUD (laps, place, minimap arrow, timers, rev counter, gear, speed), car paint and reflections, tail lights, badge, shadow, track, crowd and sky all match. The 13% pixel difference comes from the camera and car being slightly out of step between runs, not from any rendering difference.
+
+**Not covered:**
+- other screens (showroom, paint editor, replays, the career menus);
+- higher resolutions;
+- the FLOAT16 vpkd3d fix (step 15), whose four functions have an unknown consumer.
+
+A hand test by the user is the remaining check before switching.
+
+**FX disk:**
+- Each new exe makes NVIDIA's DXCache write a ~256 MB file, and C: was down to 75 MB at one point.
+- With the user's approval, 5 old crash dumps were deleted from `C:\Users\Scott\AppData\Local\CrashDumps` (soh.exe ×3, steam.exe, pgr4-t1.exe.12848; ~555 MB).
+- My capture dumps (out\res and out\capture files written by these runs) were deleted after each run.
