@@ -1,0 +1,219 @@
+diff --git a/ReXenonTests/driver.cpp b/ReXenonTests/driver.cpp
+index 32a69f9..f974be2 100644
+--- a/ReXenonTests/driver.cpp
++++ b/ReXenonTests/driver.cpp
+@@ -528,6 +528,7 @@ int main(int argc, char** argv)
+         {
+             const std::string list = std::string(",") + options + ",";
+             recompiler.config.exactEstimates = list.find(",exact_estimates,") != std::string::npos;
++            recompiler.config.elideReturnLr = list.find(",elide_return_lr,") != std::string::npos;
+             recompiler.config.fusedMadd = list.find(",fused_madd,") != std::string::npos;
+         }
+         recompiler.image.base = 0;
+diff --git a/ReXenonTests/run.py b/ReXenonTests/run.py
+index 9177fd9..02a01c4 100644
+--- a/ReXenonTests/run.py
++++ b/ReXenonTests/run.py
+@@ -198,7 +198,7 @@ def main():
+     ap.add_argument("--jobs", type=int, default=6)
+     ap.add_argument("--no-build", action="store_true", help="don't rebuild the driver")
+     ap.add_argument("--options", default="", help="recompiler options for this run, comma-separated "
+-                    "(exact_estimates, fused_madd); work files and results get their own names")
++                    "(exact_estimates, fused_madd, elide_return_lr); work files and results get their own names")
+     ap.add_argument("--cflag", action="append", default=[], help="extra compiler flag, e.g. -mfma (repeatable)")
+     args = ap.parse_args()
+ 
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index 0691c46..c87391e 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -945,7 +945,49 @@ bool Recompiler::Recompile(
+             return base + 4 < fn.base + fn.size && *(data + 1) == c_eieio;
+         };
+ 
+-    auto printFunctionCall = [&](uint32_t address)
++    // inline_register_thunks: recompile the helper's instructions (up to its blr) in place of the
++    // call. Returns false, having printed nothing, if the helper isn't straight-line code.
++    auto printInlineThunk = [&](uint32_t address, size_t size, const std::string& name, bool tail) -> bool
++        {
++            const auto* thunkData = reinterpret_cast<const uint32_t*>(image.Find(address));
++            if (thunkData == nullptr || inliningThunk)
++                return false;
++
++            size_t count = 0;
++            std::vector<ppc_insn> thunkInsns;
++            for (; count < size / 4; ++count)
++            {
++                const uint32_t word = ByteSwap(thunkData[count]);
++                if (word == 0x4E800020) // blr
++                    break;
++                // Branches, sc and the CR/branch-unit group (op 19) would need labels or a return.
++                const uint32_t op = PPC_OP(word);
++                if (op == 16 || op == 17 || op == 18 || op == 19)
++                    return false;
++                auto& thunkInsn = thunkInsns.emplace_back();
++                ppc::Disassemble(thunkData + count, 4, address + count * 4, thunkInsn);
++                if (thunkInsn.opcode == nullptr)
++                    return false;
++            }
++            if (count == size / 4)
++                return false; // no blr inside the helper's extent
++
++            println("	// {} (inlined)", name);
++            const Function thunkFn(address, (count + 1) * 4);
++            auto noSwitch = config.switchTables.end();
++            inliningThunk = true;
++            thunkInlineTail = tail;
++            for (size_t k = 0; k < count; ++k)
++            {
++                if (!Recompile(thunkFn, uint32_t(address + k * 4), thunkInsns[k], thunkData + k, noSwitch, localVariables, csrState))
++                    problem("{:X} (in {:X}): inlined {} has an instruction that wasn't recompiled", base, fn.base, name);
++            }
++            inliningThunk = false;
++            thunkInlineTail = false;
++            return true;
++        };
++
++    auto printFunctionCall = [&](uint32_t address, bool tail)
+         {
+             if (address == config.longJmpAddress)
+             {
+@@ -968,6 +1010,11 @@ bool Recompiler::Recompile(
+                     {
+                         // print nothing
+                     }
++                    else if (config.inlineRegisterThunks &&
++                        (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0) &&
++                        printInlineThunk(address, targetSymbol->size, targetSymbol->name, tail))
++                    {
++                    }
+                     else if (emptyFunctions.count(address))
+                     {
+                         println("	// {} is only blr", targetSymbol->name);
+@@ -997,7 +1044,7 @@ bool Recompiler::Recompile(
+             {
+                 println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
+                 print("\t");
+-                printFunctionCall(insn.operands[1]);
++                printFunctionCall(insn.operands[1], true);
+                 println("\t\treturn;");
+                 println("\t}}");
+             }
+@@ -1082,7 +1129,7 @@ bool Recompiler::Recompile(
+                         println("\tctx.lr = 0x{:X};", base + 4);
+                     println("\tif ({}) {{", cond);
+                     print("\t");
+-                    printFunctionCall(target);
++                    printFunctionCall(target, !link);
+                     if (!link)
+                         println("\t\treturn;");
+                     println("\t}}");
+@@ -1922,7 +1969,7 @@ bool Recompiler::Recompile(
+     case PPC_INST_B:
+         if (insn.operands[0] < fn.base || insn.operands[0] >= fn.base + fn.size)
+         {
+-            printFunctionCall(insn.operands[0]);
++            printFunctionCall(insn.operands[0], true);
+             println("\treturn;");
+         }
+         else
+@@ -2025,7 +2072,7 @@ bool Recompiler::Recompile(
+     case PPC_INST_BL:
+         if (!config.skipLr)
+             println("\tctx.lr = 0x{:X};", base + 4);
+-        printFunctionCall(insn.operands[0]);
++        printFunctionCall(insn.operands[0], false);
+         if (!emptyFunctions.count(insn.operands[0]))
+             csrState = CSRState::Unknown; // the call could change it
+         break;
+@@ -2690,7 +2737,17 @@ bool Recompiler::Recompile(
+ 
+     case PPC_INST_MTLR:
+         if (!config.skipLr)
+-            println("\tctx.lr = {}.u64;", r(insn.operands[0]));
++        {
++            // elide_return_lr: the next instruction is blr, so this LR is only used to return,
++            // which the C++ return does. Not inside an inlined helper reached by bl (its caller
++            // carries on with LR as the helper set it).
++            const bool beforeReturn = config.elideReturnLr && base + 4 < fn.base + fn.size &&
++                ByteSwap(*(data + 1)) == 0x4E800020 && (!inliningThunk || thunkInlineTail);
++            if (beforeReturn)
++                println("\t// ctx.lr not stored: blr follows");
++            else
++                println("\tctx.lr = {}.u64;", r(insn.operands[0]));
++        }
+         break;
+ 
+     case PPC_INST_MTMSR:
+diff --git a/XenonRecomp/recompiler.h b/XenonRecomp/recompiler.h
+index 1163a6c..6cb9c36 100644
+--- a/XenonRecomp/recompiler.h
++++ b/XenonRecomp/recompiler.h
+@@ -42,6 +42,10 @@ struct Recompiler
+ 
+     // Functions whose body is a single blr, when elide_empty_functions is set.
+     std::unordered_set<size_t> emptyFunctions;
++    // Set while a register save/restore helper is being recompiled into its caller
++    // (inline_register_thunks); thunkInlineTail when the call was a tail branch (b, or bc without LK).
++    bool inliningThunk = false;
++    bool thunkInlineTail = false;
+ 
+     template<class... Args>
+     void problem(fmt::format_string<Args...> fmt, Args&&... args)
+diff --git a/XenonRecomp/recompiler_config.cpp b/XenonRecomp/recompiler_config.cpp
+index 0952573..a01ee53 100644
+--- a/XenonRecomp/recompiler_config.cpp
++++ b/XenonRecomp/recompiler_config.cpp
+@@ -28,6 +28,8 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
+         nonVolatileRegistersAsLocalVariables = main["non_volatile_as_local"].value_or(false);
+         allowUnresolved = main["allow_unresolved"].value_or(false);
+         elideEmptyFunctions = main["elide_empty_functions"].value_or(false);
++        inlineRegisterThunks = main["inline_register_thunks"].value_or(false);
++        elideReturnLr = main["elide_return_lr"].value_or(false);
+         functionTableAddress = main["function_table_address"].value_or(0u);
+         hardwareFences = main["hardware_fences"].value_or(false);
+         autoSwitchTables = main["auto_switch_tables"].value_or(false);
+diff --git a/XenonRecomp/recompiler_config.h b/XenonRecomp/recompiler_config.h
+index 6fa69df..feeffd3 100644
+--- a/XenonRecomp/recompiler_config.h
++++ b/XenonRecomp/recompiler_config.h
+@@ -46,6 +46,14 @@ struct RecompilerConfig
+     // hooks one of them must list it in keep_functions; the elided ones are written to
+     // ppc_elided_functions.txt so a port can check.
+     bool elideEmptyFunctions = false;
++    // Calls to the register save/restore helpers (__savegprlr_N, __restfpr_N, ...) are replaced by
++    // the helper's own instructions, recompiled in place. Guest state stays identical; the code is
++    // larger (up to ~19 stores per call site) but skips a call and the helper's prologue.
++    bool inlineRegisterThunks = false;
++    // `mtlr rX` right before an unconditional blr doesn't store ctx.lr (the function returns, and
++    // no caller reads LR after a call before setting it). ctx.lr after a return then holds the
++    // last return address set inside the callee instead of the caller's own.
++    bool elideReturnLr = false;
+     std::unordered_set<uint32_t> keepFunctions;
+     // Guest address of the indirect-call table (8 bytes per 4-byte code word, i.e. 2x PPC_CODE_SIZE).
+     // 0 = right after the image. See the note the generator prints about the displacement.
+diff --git a/XenonUtils/ppc_context.h b/XenonUtils/ppc_context.h
+index 4ec5963..02a3b29 100644
+--- a/XenonUtils/ppc_context.h
++++ b/XenonUtils/ppc_context.h
+@@ -872,4 +872,20 @@ inline uint64_t __rdtsc()
+ #   error "Missing implementation for __rdtsc()"
+ #endif
+ 
++// Filler for the indirect-call table's empty slots. A port's loader writes it into every slot no
++// recompiled function maps to (before installing its hooks), so a call through a bad pointer
++// reaches PPC_INDIRECT_MISS instead of jumping to null, at no cost per call. bctrl leaves the
++// target in ctr, so ctr is passed; for blrl (target in lr, which the call has overwritten) it is
++// only a hint.
++inline PPC_FUNC(PPCUnmappedFunction)
++{
++    (void)base;
++#ifndef PPC_CONFIG_CTR_AS_LOCAL
++    PPC_INDIRECT_MISS(uint32_t(ctx.ctr.u32));
++#else
++    (void)ctx;
++    PPC_INDIRECT_MISS(uint32_t(0));
++#endif
++}
++
+ #endif

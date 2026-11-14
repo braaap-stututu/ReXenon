@@ -46,6 +46,16 @@ struct RecompilerConfig
     // hooks one of them must list it in keep_functions; the elided ones are written to
     // ppc_elided_functions.txt so a port can check.
     bool elideEmptyFunctions = false;
+    // Calls to the register save/restore helpers (__savegprlr_N, __restfpr_N, ...) are replaced by
+    // the helper's own instructions, recompiled in place. Guest state stays identical; the code is
+    // larger (up to ~19 stores per call site) but skips a call and the helper's prologue.
+    bool inlineRegisterThunks = false;
+    // `mtlr rX` right before an unconditional blr doesn't store ctx.lr (the function returns, and
+    // no caller reads LR after a call before setting it). ctx.lr after a return then holds the
+    // last return address set inside the callee instead of the caller's own, so host code that
+    // samples ctx.lr at an arbitrary moment (crash logs, profilers) can name a callee; it is only
+    // exact at function entry.
+    bool elideReturnLr = false;
     std::unordered_set<uint32_t> keepFunctions;
     // Guest address of the indirect-call table (8 bytes per 4-byte code word, i.e. 2x PPC_CODE_SIZE).
     // 0 = right after the image. See the note the generator prints about the displacement.

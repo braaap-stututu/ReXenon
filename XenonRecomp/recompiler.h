@@ -42,6 +42,10 @@ struct Recompiler
 
     // Functions whose body is a single blr, when elide_empty_functions is set.
     std::unordered_set<size_t> emptyFunctions;
+    // Set while a register save/restore helper is being recompiled into its caller
+    // (inline_register_thunks); thunkInlineTail when the call was a tail branch (b, or bc without LK).
+    bool inliningThunk = false;
+    bool thunkInlineTail = false;
 
     template<class... Args>
     void problem(fmt::format_string<Args...> fmt, Args&&... args)

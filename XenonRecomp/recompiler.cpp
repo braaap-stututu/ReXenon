@@ -945,7 +945,64 @@ bool Recompiler::Recompile(
             return base + 4 < fn.base + fn.size && *(data + 1) == c_eieio;
         };
 
-    auto printFunctionCall = [&](uint32_t address)
+    // inline_register_thunks: recompile the helper's instructions (up to its blr) in place of the
+    // call. Returns false, having printed nothing, if the helper isn't straight-line code, if the
+    // port hooks it (keep_functions, or a mid-asm hook inside it), or if any of its instructions
+    // doesn't recompile (the call then reaches the helper's own function, which traps there).
+    auto printInlineThunk = [&](uint32_t address, size_t size, const std::string& name, bool tail) -> bool
+        {
+            const auto* thunkData = reinterpret_cast<const uint32_t*>(image.Find(address));
+            if (thunkData == nullptr || inliningThunk || config.keepFunctions.count(address))
+                return false;
+
+            size_t count = 0;
+            std::vector<ppc_insn> thunkInsns;
+            for (; count < size / 4; ++count)
+            {
+                const uint32_t word = ByteSwap(thunkData[count]);
+                if (config.midAsmHooks.count(uint32_t(address + count * 4))) // the blr's too
+                    return false;
+                if (word == 0x4E800020) // blr
+                    break;
+                // Branches, sc and the CR/branch-unit group (op 19) would need labels or a return.
+                const uint32_t op = PPC_OP(word);
+                if (op == 16 || op == 17 || op == 18 || op == 19)
+                    return false;
+                auto& thunkInsn = thunkInsns.emplace_back();
+                ppc::Disassemble(thunkData + count, 4, address + count * 4, thunkInsn);
+                if (thunkInsn.opcode == nullptr)
+                    return false;
+            }
+            if (count == size / 4)
+                return false; // no blr inside the helper's extent
+
+            // Undo everything the attempt printed or recorded if an instruction fails.
+            const size_t outSize = out.size();
+            const size_t problemCount = problems.size();
+            const RecompilerLocalVariables savedLocals = localVariables;
+            const CSRState savedCsr = csrState;
+
+            println("	// {} (inlined)", name);
+            const Function thunkFn(address, (count + 1) * 4);
+            auto noSwitch = config.switchTables.end();
+            inliningThunk = true;
+            thunkInlineTail = tail;
+            bool ok = true;
+            for (size_t k = 0; k < count && ok; ++k)
+                ok = Recompile(thunkFn, uint32_t(address + k * 4), thunkInsns[k], thunkData + k, noSwitch, localVariables, csrState);
+            inliningThunk = false;
+            thunkInlineTail = false;
+            if (!ok)
+            {
+                out.resize(outSize);
+                problems.resize(problemCount);
+                localVariables = savedLocals;
+                csrState = savedCsr;
+            }
+            return ok;
+        };
+
+    auto printFunctionCall = [&](uint32_t address, bool tail)
         {
             if (address == config.longJmpAddress)
             {
@@ -967,6 +1024,11 @@ bool Recompiler::Recompile(
                     if (config.nonVolatileRegistersAsLocalVariables && (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0))
                     {
                         // print nothing
+                    }
+                    else if (config.inlineRegisterThunks &&
+                        (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0) &&
+                        printInlineThunk(address, targetSymbol->size, targetSymbol->name, tail))
+                    {
                     }
                     else if (emptyFunctions.count(address))
                     {
@@ -997,7 +1059,7 @@ bool Recompiler::Recompile(
             {
                 println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
                 print("\t");
-                printFunctionCall(insn.operands[1]);
+                printFunctionCall(insn.operands[1], true);
                 println("\t\treturn;");
                 println("\t}}");
             }
@@ -1082,7 +1144,7 @@ bool Recompiler::Recompile(
                         println("\tctx.lr = 0x{:X};", base + 4);
                     println("\tif ({}) {{", cond);
                     print("\t");
-                    printFunctionCall(target);
+                    printFunctionCall(target, !link);
                     if (!link)
                         println("\t\treturn;");
                     println("\t}}");
@@ -1922,7 +1984,7 @@ bool Recompiler::Recompile(
     case PPC_INST_B:
         if (insn.operands[0] < fn.base || insn.operands[0] >= fn.base + fn.size)
         {
-            printFunctionCall(insn.operands[0]);
+            printFunctionCall(insn.operands[0], true);
             println("\treturn;");
         }
         else
@@ -2025,7 +2087,7 @@ bool Recompiler::Recompile(
     case PPC_INST_BL:
         if (!config.skipLr)
             println("\tctx.lr = 0x{:X};", base + 4);
-        printFunctionCall(insn.operands[0]);
+        printFunctionCall(insn.operands[0], false);
         if (!emptyFunctions.count(insn.operands[0]))
             csrState = CSRState::Unknown; // the call could change it
         break;
@@ -2690,7 +2752,17 @@ bool Recompiler::Recompile(
 
     case PPC_INST_MTLR:
         if (!config.skipLr)
-            println("\tctx.lr = {}.u64;", r(insn.operands[0]));
+        {
+            // elide_return_lr: the next instruction is blr, so this LR is only used to return,
+            // which the C++ return does. Not inside an inlined helper reached by bl (its caller
+            // carries on with LR as the helper set it).
+            const bool beforeReturn = config.elideReturnLr && base + 4 < fn.base + fn.size &&
+                ByteSwap(*(data + 1)) == 0x4E800020 && (!inliningThunk || thunkInlineTail);
+            if (beforeReturn)
+                println("\t// ctx.lr not stored: blr follows");
+            else
+                println("\tctx.lr = {}.u64;", r(insn.operands[0]));
+        }
         break;
 
     case PPC_INST_MTMSR:

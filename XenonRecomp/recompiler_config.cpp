@@ -28,6 +28,8 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
         nonVolatileRegistersAsLocalVariables = main["non_volatile_as_local"].value_or(false);
         allowUnresolved = main["allow_unresolved"].value_or(false);
         elideEmptyFunctions = main["elide_empty_functions"].value_or(false);
+        inlineRegisterThunks = main["inline_register_thunks"].value_or(false);
+        elideReturnLr = main["elide_return_lr"].value_or(false);
         functionTableAddress = main["function_table_address"].value_or(0u);
         hardwareFences = main["hardware_fences"].value_or(false);
         autoSwitchTables = main["auto_switch_tables"].value_or(false);

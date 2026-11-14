@@ -198,7 +198,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--no-build", action="store_true", help="don't rebuild the driver")
     ap.add_argument("--options", default="", help="recompiler options for this run, comma-separated "
-                    "(exact_estimates, fused_madd); work files and results get their own names")
+                    "(exact_estimates, fused_madd, elide_return_lr); work files and results get their own names")
     ap.add_argument("--cflag", action="append", default=[], help="extra compiler flag, e.g. -mfma (repeatable)")
     args = ap.parse_args()
 

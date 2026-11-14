@@ -872,4 +872,17 @@ inline uint64_t __rdtsc()
 #   error "Missing implementation for __rdtsc()"
 #endif
 
+// Filler for the indirect-call table's empty slots: a port expands
+// PPC_DEFINE_UNMAPPED_FUNCTION(name) in ONE translation unit that sees its own PPC_INDIRECT_MISS
+// (if it defines one), and its loader writes &name into every slot no recompiled function maps to,
+// before installing its hooks. A call through a bad pointer then reaches PPC_INDIRECT_MISS instead
+// of jumping to null, at no cost per call. bctrl leaves the target in ctr, so ctr is passed (0 with
+// ctr as a local); for blrl (target in lr, which the call has overwritten) it is only a hint.
+#ifndef PPC_CONFIG_CTR_AS_LOCAL
+#define PPC_UNMAPPED_TARGET(ctx) uint32_t((ctx).ctr.u32)
+#else
+#define PPC_UNMAPPED_TARGET(ctx) uint32_t(0)
+#endif
+#define PPC_DEFINE_UNMAPPED_FUNCTION(name)     PPC_FUNC(name) { (void)ctx; (void)base; PPC_INDIRECT_MISS(PPC_UNMAPPED_TARGET(ctx)); }
+
 #endif

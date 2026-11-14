@@ -528,6 +528,7 @@ int main(int argc, char** argv)
         {
             const std::string list = std::string(",") + options + ",";
             recompiler.config.exactEstimates = list.find(",exact_estimates,") != std::string::npos;
+            recompiler.config.elideReturnLr = list.find(",elide_return_lr,") != std::string::npos;
             recompiler.config.fusedMadd = list.find(",fused_madd,") != std::string::npos;
         }
         recompiler.image.base = 0;

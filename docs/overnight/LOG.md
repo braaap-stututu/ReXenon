@@ -501,3 +501,46 @@ A port can now let the analysis find everything, review the two files, and freez
   - The run refuses to overwrite the switch table file it read.
   - The header says to *replace* any existing `functions` list. Pasting it next to an existing list is a TOML duplicate-key error.
 - A normal run writes the same list as before.
+
+## Step 20 (2026-11-14 morning): inline the save/restore helpers (roadmap item 7b), elide return LR stores (item 11a), unmapped-slot filler (item 9) (tree-20)
+
+Three opt-in changes, all off by default. With them off, both games' output is byte-identical to 13ab3c1, except for the new macro text in the output's copy of ppc_context.h.
+
+- **`inline_register_thunks = true`**: calls to `__savegprlr_N`, `__restgprlr_N`, `__savefpr_N`, `__restfpr_N`, `__savevmx_N` and `__restvmx_N` are replaced by the helper's own instructions, recompiled in place up to its blr.
+  - Results:
+    - FM2: 25,116 call sites (restgprlr 12,794, savegprlr 11,536, fpr 698, vmx 88).
+    - PGR4: 23,436 call sites.
+    - All restgprlr inlines come from a tail `b`, and all the rest from `bl`.
+  - **Code size:** `.text` +11.6% on FM2 and +11% on PGR4, over 5 sample chunks. That is the cost the research predicted; only an FX A/B can say whether the saved calls are worth it.
+  - **Guest state is unchanged.** A script folded every inlined block back into a call and compared it with the options-off output. Both games: 0 differences, and every inlined body matches the helper's own body line for line.
+  - It also makes `non_argument_as_local` possible, because the save helper reads r12 from the caller.
+  - **Falls back to a normal call (prints nothing):**
+    - the helper isn't straight-line code (branch, sc, op 19);
+    - it's in `keep_functions` or has a mid-asm hook on any word, the blr included;
+    - any of its instructions fails to recompile. Everything the attempt printed or recorded is rolled back, so the helper's own function traps as before.
+- **`elide_return_lr = true`**: `mtlr rX` directly before an unconditional blr doesn't store `ctx.lr`. Inside an inlined helper this applies only when the helper was reached by a tail branch.
+  - Results:
+    - FM2: 20,100 stores dropped, `.text` −0.4%.
+    - PGR4: 4,643 stores dropped.
+    - Every dropped store is `lwz r12; mtlr r12; blr` (no computed jumps).
+  - **Why it is safe:**
+    - A data-flow check over every function of both games found 0 LR reads (mflr, blrl, setjmp's `env = ctx`) reachable from a call without an LR write in between.
+    - The check flags all of them when its entry state is forced to "after a call", so it does detect them.
+    - No port hook writes `ctx.lr`, and hooks only read it at entry.
+  - **Side effect, documented in the option's comment:** host code that samples `ctx.lr` at an arbitrary moment (FM2/PGR4 `crash.cpp` "guest lr", the spike sampler) can show an address inside the last callee instead of the caller. Leave the option off when those logs matter.
+- **`PPC_DEFINE_UNMAPPED_FUNCTION(name)`** (ppc_context.h): a port expands it in **one** TU that sees its own `PPC_INDIRECT_MISS`. Its loader then writes `&name` into every empty indirect-call slot, before the hooks. A bad pointer then reaches `PPC_INDIRECT_MISS(ctr)` at no cost per call.
+  - It is a macro, not an inline function. The ports' loaders don't include `ppc_hooks.h`, so an inline would have silently used the default trap (an ODR hazard; review finding).
+- **Bench:**
+  - Defaults: per-test identical to step 19 (142,286 pass).
+  - `--options elide_return_lr` (new): also identical, since no test checks LR after a return.
+  - The bench doesn't cover the helpers.
+- **Review:** 3 reviewers, each finding checked by a skeptic, then a check of the fixes.
+  - 5 low defects confirmed and fixed, all latent (none affects either game's output today):
+    1. A failed inline dropped the instruction instead of trapping.
+    2. A mid-asm hook or keep_functions entry on a helper was ignored.
+    3. The diagnostics side effect above.
+    4. The stub's ODR hazard.
+    5. The mid-asm hook check skipped the helper's blr word.
+  - After every fix, both games regenerate with 0 problems and output identical to the reviewed version.
+  - Review input: `review20-input.patch`.
+- **To try on FM2 (FX A/B):** `inline_register_thunks` and `elide_return_lr`, separately.
