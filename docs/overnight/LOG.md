@@ -684,3 +684,69 @@ A hand test by the user is the remaining check before switching.
 - Each new exe makes NVIDIA's DXCache write a ~256 MB file, and C: was down to 75 MB at one point.
 - With the user's approval, 5 old crash dumps were deleted from `C:\Users\Scott\AppData\Local\CrashDumps` (soh.exe ×3, steam.exe, pgr4-t1.exe.12848; ~555 MB).
 - My capture dumps (out\res and out\capture files written by these runs) were deleted after each run.
+
+## Step 24 (2026-11-14 13:04–13:53, FX): R2 options, the first measured gain over XenonRecomp
+
+**R2** is ReXenon f1c5352 output with three opt-in options (config `build/gen/fm2/config-r2`, output `D:\fm2-port\out\ppc_tu4_r2`):
+- `elide_empty_functions = true` (266 blr-only functions; calls to them skipped);
+- `elide_return_lr = true` (no `ctx.lr` store before a blr);
+- `function_table_address = 0x843C0000` (call table moved so its displacement fits in int32).
+
+**Review:** an adversarial review (2 reviewers) found no defects.
+- The table range 0x843C0000–0x852F9E98 is committed by MemoryInit and is used by no host or guest code. No kernel path hands out fixed addresses.
+- No FM2 hook or address in src/remapped (379 distinct) is on the elided list. The elided functions stay in the mapping, so GuestCall and function pointers still work.
+- No host code reads `ctx.lr` after a guest call returns to make a decision. WheelFfProcedure reads it on entry, where the `bl` has set it.
+
+**FX A/B:** A = HEAD XenonRecomp build (11:11), R2 = `build/rx` against `ppc_tu4_r2`. NVIDIA DXCache cleared first (user approved), so A's first run was cold; it is inside A's spread. Warm-up then 10 rounds alternating, 720p, all 21 runs valid (13–14 distinct draw counts), no Fatal or crash.
+
+| median of 10 | A (XenonRecomp) | R2 (ReXenon) | Mann-Whitney |
+|---|---|---|---|
+| fps | 81.0 (78.1–90.8) | 85.7 (78.9–91.2), +5.8% | p = 0.082 |
+| 1% low | 51.55 | 52.35, +1.6% | p = 0.010 |
+| 0.1% low | 40.35 | 40.80, +1.1% | p = 0.39 |
+| Timeline segment 1 | 61.0 | 62.0, +1.6% | p = 0.13 |
+
+R2 had the higher average in 7 of 10 paired rounds. Step 22 redo (plain ReXenon) gave fps −0.9% (p = 0.55), 1% low +1.4% (p = 0.21), segment 1 +1.6% (p = 0.013), so the options add mostly to the average and the 1% lows.
+
+**Result:** ReXenon with these options is faster than XenonRecomp on the FX. The 1% lows are significant; the average is +5.8% at p = 0.08.
+
+## Step 25 (2026-11-14 13:53–14:41, FX): R3 = R2 + `inline_register_thunks`
+
+- R3 adds `inline_register_thunks = true` to R2 (config `config-r3`, output `out/ppc_tu4_r3`).
+- All 25,116 calls to the __save/__rest helpers are inlined; the exe is 45.6 MB (R2 43.06). No FM2 hook targets a helper.
+- A/B, same method as step 24: all 21 runs valid, no Fatal or crash. Two A runs had a hitch (1% low 39.8 and 39.9).
+
+| median of 10 | A (XenonRecomp) | R3 | Mann-Whitney |
+|---|---|---|---|
+| fps | 80.45 | 82.90, +3.0% | p = 0.15 |
+| 1% low | 51.15 | 51.95, +1.6% | p = 0.016 |
+| 0.1% low | 40.00 | 42.70, +6.8% | p = 0.064 |
+| Timeline segment 1 | 61.0 | 62.0, +1.6% | p = 0.049 |
+
+R3 is not measurably better than R2; the thunk inlining is about neutral on the FX.
+
+**Pooled, steps 24 + 25** (A: 20 runs; R2 + R3: 20 runs, both with the R2 options):
+
+| | A | ReXenon | Mann-Whitney |
+|---|---|---|---|
+| fps | 80.70 | 85.15, +5.5% | p = 0.014 |
+| 1% low | 51.40 | 52.15, +1.5% | p = 0.0008 |
+| Timeline segment 1 | 61.0 | 62.0, +1.6% | p = 0.013 |
+
+**ReXenon with the R2 options is faster than XenonRecomp on the FX: about +5% average, with better lows.**
+
+## Non-volatile safety review (2026-11-14 afternoon, while ab6 ran)
+
+A review workflow (3 search angles, every candidate checked by a refuter) looked for loops in FM2's R3 output that wait on another thread with no call, barrier or reservation inside. Without `volatile` clang may hoist the load (spin forever) or, under C++ mustprogress, delete the loop (skip the wait). `ctx` is `PPCContext& __restrict`, so ctx stores don't block the hoisting.
+
+**Confirmed by all three angles (4 loops):**
+- `sub_8239ADF0` (ppc_recomp.36.cpp:32751): D3D worker busy flag at device+10924.
+- `sub_82400DA0` (ppc_recomp.40.cpp:10981): XAudio per-CPU barrier word (only when the mixer uses more than one CPU).
+- `sub_8254D6C0` (ppc_recomp.66.cpp:19032): a destructor waiting on the object's quit/ack byte at +1232.
+- `sub_8245F430` (ppc_recomp.47.cpp:27698): voice/XMsg teardown waiting for the async state word to reach 0.
+
+**Refuted:** `sub_8238C568` (D3D pending counter) and `sub_8247F840` (XOVERLAPPED wait); both loops contain an opaque call.
+
+**Conclusion:** blanket non-volatile is not shippable. If it measures faster, the shippable form is an option that keeps loads volatile inside any call-free, barrier-free cycle (the scan found 5,471 such cycles) and drops volatile elsewhere.
+
+The R2 config is saved here as `fm2_tu4_r2.toml`.
