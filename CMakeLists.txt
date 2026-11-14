@@ -27,4 +27,5 @@ add_subdirectory(${XENONUTILS_ROOT})
 # Only tests if this is the top level project
 if (${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
     add_subdirectory(XenonTests)
+    add_subdirectory(ReXenonTests)
 endif()

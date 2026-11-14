@@ -1,0 +1,259 @@
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index 2b12f49..f06406c 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -174,6 +174,11 @@ void Recompiler::Analyse()
+         image.symbols.emplace(fmt::format("sub_{:X}", address), address, size, Symbol_Function);
+     }
+ 
++    // A function whose .pdata entry has ExceptionFlag set is preceded by 8 bytes of exception data
++    // (the handler's address and its scope table), not code. Skip them in the linear scan below
++    // instead of decoding them as a function.
++    std::unordered_set<size_t> exceptionData;
++
+     auto& pdata = *image.Find(".pdata");
+     size_t count = pdata.size / sizeof(IMAGE_CE_RUNTIME_FUNCTION);
+     auto* pf = (IMAGE_CE_RUNTIME_FUNCTION*)pdata.data;
+@@ -183,6 +188,9 @@ void Recompiler::Analyse()
+         fn.BeginAddress = ByteSwap(fn.BeginAddress);
+         fn.Data = ByteSwap(fn.Data);
+ 
++        if (fn.ExceptionFlag)
++            exceptionData.emplace(fn.BeginAddress - 8);
++
+         if (image.symbols.find(fn.BeginAddress) == image.symbols.end())
+         {
+             auto& f = functions.emplace_back();
+@@ -224,6 +232,13 @@ void Recompiler::Analyse()
+ 
+         while (data < dataEnd)
+         {
++            if (exceptionData.count(base) && image.symbols.find(base) == image.symbols.end())
++            {
++                base += 8;
++                data += 8;
++                continue;
++            }
++
+             auto invalidInstr = config.invalidInstructions.find(ByteSwap(*(uint32_t*)data));
+             if (invalidInstr != config.invalidInstructions.end())
+             {
+@@ -251,9 +266,165 @@ void Recompiler::Analyse()
+         }
+     }
+ 
++    SplitStrandedFunctions();
++
+     std::sort(functions.begin(), functions.end(), [](auto& lhs, auto& rhs) { return lhs.base < rhs.base; });
+ }
+ 
++// A branch (b/bc without link, or a switch case) from one function into the middle of another,
++// landing right after an instruction that never falls through (b, blr, bctr, or a call to a
++// noreturn kernel import), means the second function was sized too far: the target is the start of
++// a function of its own, usually an exception funclet or a routine placed after KeBugCheck. Split it
++// there, so the branch becomes a tail call instead of an unresolved branch.
++// Only when no branch in the part before the target enters the part after it, and none in the part
++// after goes back, so each piece is self-contained and no register state flows between them.
++void Recompiler::SplitStrandedFunctions()
++{
++    auto word = [&](size_t address, uint32_t& w) -> bool
++        {
++            auto* p = (const uint32_t*)image.Find(address);
++            if (p == nullptr)
++                return false;
++            w = ByteSwap(*p);
++            return true;
++        };
++
++    // Static branch targets of the instruction at address (none for calls and indirect branches).
++    auto targetsOf = [&](size_t address, std::vector<size_t>& targets)
++        {
++            uint32_t w;
++            if (!word(address, w))
++                return;
++            if (!PPC_BL(w))
++            {
++                if (PPC_OP(w) == PPC_OP_B)
++                    targets.push_back(PPC_BA(w) ? size_t(uint32_t(PPC_BI(w))) : address + PPC_BI(w));
++                else if (PPC_OP(w) == PPC_OP_BC)
++                    targets.push_back(PPC_BA(w) ? size_t(uint32_t(PPC_BD(w))) : address + PPC_BD(w));
++            }
++            auto switchTable = config.switchTables.find(address);
++            if (switchTable != config.switchTables.end())
++                targets.insert(targets.end(), switchTable->second.labels.begin(), switchTable->second.labels.end());
++        };
++
++    auto neverFallsThrough = [&](size_t address, const char*& why) -> bool
++        {
++            uint32_t w;
++            if (!word(address, w))
++                return false;
++            if (PPC_OP(w) == PPC_OP_B)
++            {
++                if (!PPC_BL(w))
++                {
++                    why = "b";
++                    return true;
++                }
++                const size_t target = PPC_BA(w) ? size_t(uint32_t(PPC_BI(w))) : address + PPC_BI(w);
++                auto symbol = image.symbols.find(target);
++                if (symbol != image.symbols.end() && symbol->address == target &&
++                    (symbol->name == "__imp__KeBugCheck" || symbol->name == "__imp__KeBugCheckEx"))
++                {
++                    why = "a call to KeBugCheck";
++                    return true;
++                }
++                return false;
++            }
++            // bclr/bcctr with BO "branch always" and no link
++            if (PPC_OP(w) == PPC_OP_CTR && !PPC_BL(w) && (PPC_BO(w) & 0x14) == 0x14)
++            {
++                if (PPC_XOP(w) == 16)
++                {
++                    why = "blr";
++                    return true;
++                }
++                if (PPC_XOP(w) == 528)
++                {
++                    why = "bctr";
++                    return true;
++                }
++            }
++            return false;
++        };
++
++    size_t splits = 0;
++    for (bool changed = true; changed; )
++    {
++        changed = false;
++        for (size_t i = 0; i < functions.size(); i++)
++        {
++            const size_t fnBase = functions[i].base;
++            const size_t fnEnd = fnBase + functions[i].size;
++
++            std::vector<size_t> targets;
++            for (size_t address = fnBase; address < fnEnd; address += 4)
++                targetsOf(address, targets);
++
++            for (size_t target : targets)
++            {
++                if ((target >= fnBase && target < fnEnd) || (target & 3) != 0)
++                    continue;
++
++                auto exact = image.symbols.find(target);
++                if (exact != image.symbols.end() && exact->address == target)
++                    continue;
++
++                auto containing = image.symbols.findContaining(target);
++                if (containing == image.symbols.end())
++                    continue;
++
++                const size_t ownerBase = containing->address;
++                const size_t ownerEnd = ownerBase + containing->size;
++                const char* why = nullptr;
++                if (!neverFallsThrough(target - 4, why))
++                    continue;
++
++                size_t owner = functions.size();
++                for (size_t j = 0; j < functions.size(); j++)
++                {
++                    if (functions[j].base == ownerBase && functions[j].base + functions[j].size == ownerEnd)
++                    {
++                        owner = j;
++                        break;
++                    }
++                }
++                if (owner == functions.size())
++                    continue;
++
++                bool crossing = false;
++                std::vector<size_t> inner;
++                for (size_t address = ownerBase; address < ownerEnd && !crossing; address += 4)
++                {
++                    inner.clear();
++                    targetsOf(address, inner);
++                    for (size_t t : inner)
++                    {
++                        const bool fromHead = address < target;
++                        if (fromHead ? (t >= target && t < ownerEnd) : (t >= ownerBase && t < target))
++                            crossing = true;
++                    }
++                }
++                if (crossing)
++                    continue;
++
++                const std::string name = containing->name;
++                image.symbols.erase(containing);
++                image.symbols.emplace(name, ownerBase, target - ownerBase, Symbol_Function);
++                image.symbols.emplace(fmt::format("sub_{:X}", target), target, ownerEnd - target, Symbol_Function);
++                functions[owner].size = target - ownerBase;
++                functions.emplace_back(target, ownerEnd - target);
++
++                fmt::println("Split {} at {:X} (branched to from {:X}; it follows {})", name, target, fnBase, why);
++                ++splits;
++                changed = true;
++                break;
++            }
++        }
++    }
++
++    if (splits != 0)
++        fmt::println("Split {} {} at stranded branch targets", splits, splits == 1 ? "function" : "functions");
++}
++
+ bool Recompiler::Recompile(
+     const Function& fn,
+     uint32_t base,
+@@ -402,7 +573,11 @@ bool Recompiler::Recompile(
+                     // Not a function start: the target is inside another function (a shared epilogue
+                     // or a mis-sized function). Trap instead of silently returning.
+                     println("\tPPC_UNRESOLVED_BRANCH(0x{:X}, 0x{:X});", base, address);
+-                    problem("{:X} (in {:X}): branch to {:X}, which isn't a function start", base, fn.base, address);
++                    auto containing = image.symbols.findContaining(address);
++                    if (containing != image.symbols.end())
++                        problem("{:X} (in {:X}): branch to {:X}, which is inside {} ({:X}-{:X})", base, fn.base, address, containing->name, containing->address, containing->address + containing->size);
++                    else
++                        problem("{:X} (in {:X}): branch to {:X}, which isn't in any function", base, fn.base, address);
+                 }
+             }
+         };
+diff --git a/XenonRecomp/recompiler.h b/XenonRecomp/recompiler.h
+index 948209f..5143c76 100644
+--- a/XenonRecomp/recompiler.h
++++ b/XenonRecomp/recompiler.h
+@@ -61,6 +61,9 @@ struct Recompiler
+ 
+     void Analyse();
+ 
++    // Splits functions that were sized past the start of another one; see the definition.
++    void SplitStrandedFunctions();
++
+     // TODO: make a RecompileArgs struct instead this is getting messy
+     bool Recompile(
+         const Function& fn,
+diff --git a/XenonUtils/symbol_table.h b/XenonUtils/symbol_table.h
+index ca3ab70..aaf7927 100644
+--- a/XenonUtils/symbol_table.h
++++ b/XenonUtils/symbol_table.h
+@@ -33,6 +33,21 @@ public:
+         return match;
+     }
+ 
++    // The function whose [address, address + size) contains address, if any; find() only matches
++    // symbols that start exactly at address. Looks at the nearest few starts below address, which is
++    // enough for the overlaps .pdata and analysis produce.
++    const_iterator findContaining(size_t address) const
++    {
++        auto it = upper_bound(address);
++        for (int i = 0; i < 64 && it != begin(); i++)
++        {
++            --it;
++            if (it->type == Symbol_Function && address < it->address + it->size)
++                return it;
++        }
++        return end();
++    }
++
+     iterator find(size_t address)
+     {
+         auto [beginIt, endIt] = equal_range(address);

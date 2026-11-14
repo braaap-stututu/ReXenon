@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "recompiler.h"
 #include <xex_patcher.h>
+#include <switch_tables.h>
 
 static uint64_t ComputeMask(uint32_t mstart, uint32_t mstop)
 {
@@ -90,6 +91,39 @@ bool Recompiler::LoadConfig(const std::string_view& configFilePath)
     }
 
     image = Image::ParseImage(file.data(), file.size());
+
+    if (config.autoSwitchTables)
+    {
+        size_t found = 0, added = 0, rejected = 0;
+        for (auto type : { SWITCH_ABSOLUTE, SWITCH_COMPUTED, SWITCH_BYTEOFFSET, SWITCH_SHORTOFFSET })
+        {
+            for (auto& table : FindSwitchTables(image, type))
+            {
+                found++;
+                if (config.switchTables.find(uint32_t(table.base)) != config.switchTables.end())
+                    continue;
+
+                // Not reviewed by anyone, so check it. A rejected table that is a real switch is
+                // then reported by the "jump table with no switch table entry" problem.
+                std::string reason;
+                if (!IsPlausibleSwitchTable(image, table, &reason))
+                {
+                    fmt::println("Switch table at {:X} rejected: {}", table.base, reason);
+                    rejected++;
+                    continue;
+                }
+
+                RecompilerSwitchTable switchTable;
+                switchTable.r = table.r;
+                for (size_t label : table.labels)
+                    switchTable.labels.push_back(uint32_t(label));
+                config.switchTables.emplace(uint32_t(table.base), std::move(switchTable));
+                added++;
+            }
+        }
+        fmt::println("Switch tables: {} found by pattern, {} added, {} rejected (the rest are in the switch table file)", found, added, rejected);
+    }
+
     return true;
 }
 
@@ -174,6 +208,31 @@ void Recompiler::Analyse()
         image.symbols.emplace(fmt::format("sub_{:X}", address), address, size, Symbol_Function);
     }
 
+    // Switch tables by the address of their bctr (the first bctr at or after the table's base, which
+    // is where the code pattern starts), so function extents can include the cases.
+    std::unordered_map<size_t, std::vector<size_t>> jumpTables;
+    for (const auto& [tableBase, table] : config.switchTables)
+    {
+        for (const auto& section : image.sections)
+        {
+            if (!(section.flags & SectionFlags_Code) || tableBase < section.base || tableBase >= section.base + section.size)
+                continue;
+            for (size_t address = tableBase; address < tableBase + 32 * 4 && address + 4 <= section.base + section.size; address += 4)
+            {
+                if (ByteSwap(*(uint32_t*)(section.data + address - section.base)) == 0x4E800420) // bctr
+                {
+                    jumpTables[address].assign(table.labels.begin(), table.labels.end());
+                    break;
+                }
+            }
+        }
+    }
+
+    // A function whose .pdata entry has ExceptionFlag set is preceded by 8 bytes of exception data
+    // (the handler's address and its scope table), not code. Skip them in the linear scan below
+    // instead of decoding them as a function.
+    std::unordered_set<size_t> exceptionData;
+
     auto& pdata = *image.Find(".pdata");
     size_t count = pdata.size / sizeof(IMAGE_CE_RUNTIME_FUNCTION);
     auto* pf = (IMAGE_CE_RUNTIME_FUNCTION*)pdata.data;
@@ -183,14 +242,72 @@ void Recompiler::Analyse()
         fn.BeginAddress = ByteSwap(fn.BeginAddress);
         fn.Data = ByteSwap(fn.Data);
 
+        if (fn.ExceptionFlag)
+            exceptionData.emplace(fn.BeginAddress - 8);
+
         if (image.symbols.find(fn.BeginAddress) == image.symbols.end())
         {
             auto& f = functions.emplace_back();
             f.base = fn.BeginAddress;
             f.size = fn.FunctionLength * 4;
+            pdataFunctions.emplace(f.base, f.size);
 
             image.symbols.emplace(fmt::format("sub_{:X}", f.base), f.base, f.size, Symbol_Function);
         }
+    }
+
+    if (config.dataFunctionStarts)
+    {
+        std::unordered_set<size_t> switchLabels;
+        for (const auto& [tableBase, table] : config.switchTables)
+            switchLabels.insert(table.labels.begin(), table.labels.end());
+
+        auto codeWord = [&](size_t address, uint32_t& w) -> bool
+            {
+                for (const auto& section : image.sections)
+                {
+                    if ((section.flags & SectionFlags_Code) && section.data != nullptr && address >= section.base + 4 && address + 4 <= section.base + section.size)
+                    {
+                        w = ByteSwap(*(const uint32_t*)(section.data + address - section.base));
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+        size_t seeded = 0;
+        for (const auto& dataSection : image.sections)
+        {
+            if ((dataSection.name != ".rdata" && dataSection.name != ".data") || dataSection.data == nullptr)
+                continue;
+            const uint8_t* imageEnd = image.data.get() + image.size;
+            const size_t size = dataSection.data >= imageEnd ? 0 : std::min<size_t>(dataSection.size, imageEnd - dataSection.data);
+            for (size_t offset = 0; offset + 4 <= size; offset += 4)
+            {
+                const size_t target = ByteSwap(*(const uint32_t*)(dataSection.data + offset));
+                uint32_t w, previous;
+                if ((target & 3) != 0 || switchLabels.count(target) || !codeWord(target, w) || w == 0 || !codeWord(target - 4, previous))
+                    continue;
+                // Placed like a function start: right after blr, padding or an unconditional b.
+                if (!(previous == 0x4E800020 || previous == 0 || (PPC_OP(previous) == PPC_OP_B && !PPC_BL(previous))))
+                    continue;
+                if (image.symbols.find(target) != image.symbols.end() || image.symbols.findContaining(target) != image.symbols.end())
+                    continue; // already known (including import thunks), or inside a .pdata/config function
+
+                for (const auto& section : image.sections)
+                {
+                    if ((section.flags & SectionFlags_Code) && target >= section.base && target < section.base + section.size)
+                    {
+                        auto& fn = functions.emplace_back(Function::Analyze(section.data + target - section.base, section.base + section.size - target, target, &jumpTables));
+                        image.symbols.emplace(fmt::format("sub_{:X}", fn.base), fn.base, fn.size, Symbol_Function);
+                        analysedFunctions.insert(fn.base);
+                        ++seeded;
+                        break;
+                    }
+                }
+            }
+        }
+        fmt::println("{} function(s) seeded from code pointers in data", seeded);
     }
 
     for (const auto& section : image.sections)
@@ -213,8 +330,9 @@ void Recompiler::Analyse()
                 if (address >= section.base && address < section.base + section.size && image.symbols.find(address) == image.symbols.end())
                 {
                     auto data = section.data + address - section.base;
-                    auto& fn = functions.emplace_back(Function::Analyze(data, section.base + section.size - address, address));
+                    auto& fn = functions.emplace_back(Function::Analyze(data, section.base + section.size - address, address, &jumpTables));
                     image.symbols.emplace(fmt::format("sub_{:X}", fn.base), fn.base, fn.size, Symbol_Function);
+                    analysedFunctions.insert(fn.base);
                 }
             }
             data += 4;
@@ -224,6 +342,13 @@ void Recompiler::Analyse()
 
         while (data < dataEnd)
         {
+            if (exceptionData.count(base) && image.symbols.find(base) == image.symbols.end())
+            {
+                base += 8;
+                data += 8;
+                continue;
+            }
+
             auto invalidInstr = config.invalidInstructions.find(ByteSwap(*(uint32_t*)data));
             if (invalidInstr != config.invalidInstructions.end())
             {
@@ -242,8 +367,10 @@ void Recompiler::Analyse()
             }
             else
             {
-                auto& fn = functions.emplace_back(Function::Analyze(data, dataEnd - data, base));
+                auto& fn = functions.emplace_back(Function::Analyze(data, dataEnd - data, base, &jumpTables));
                 image.symbols.emplace(fmt::format("sub_{:X}", fn.base), fn.base, fn.size, Symbol_Function);
+                analysedFunctions.insert(fn.base);
+                scanFragments.insert(fn.base);
 
                 base += fn.size;
                 data += fn.size;
@@ -251,7 +378,456 @@ void Recompiler::Analyse()
         }
     }
 
+    MergeFragments();
+    SplitStrandedFunctions();
+
     std::sort(functions.begin(), functions.end(), [](auto& lhs, auto& rhs) { return lhs.base < rhs.base; });
+
+    if (!config.emitAnalysisPath.empty())
+        EmitAnalysis();
+}
+
+void Recompiler::EmitAnalysis()
+{
+    // A port asked for these files to review or freeze, so a stale or partial one is worse than
+    // none: any failure stops the run.
+    auto fail = [](const std::string& what)
+        {
+            fmt::println("ERROR: emit_analysis_path: {}", what);
+            std::exit(1);
+        };
+
+    const std::filesystem::path directory = std::filesystem::path(config.directoryPath) / config.emitAnalysisPath;
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    if (ec)
+        fail(fmt::format("can't create {}: {}", directory.string(), ec.message()));
+
+    const std::filesystem::path functionsPath = directory / "functions.toml";
+    const std::filesystem::path switchPath = directory / "switch_tables.toml";
+
+    // Never write over the switch table file this run read (its comments would be lost).
+    if (!config.switchTableFilePath.empty())
+    {
+        const std::filesystem::path input = std::filesystem::path(config.directoryPath) / config.switchTableFilePath;
+        if (std::filesystem::equivalent(input, switchPath, ec))
+            fail(fmt::format("{} is the switch table file this config reads; choose another folder", switchPath.string()));
+    }
+
+    {
+        std::ofstream stream(functionsPath, std::ios::binary);
+        if (!stream)
+            fail(fmt::format("can't write {}", functionsPath.string()));
+        stream << "# Written by ReXenon (emit_analysis_path): every function that has no .pdata entry, or whose\n";
+        stream << "# size differs from it (split at a stranded branch target), as the analysis sized it (bl\n";
+        stream << "# targets, the linear scan, data pointers, merges, splits, and config entries). Review it; to\n";
+        stream << "# freeze it, put this list in [main] of the port's config, replacing any functions list there\n";
+        stream << "# (it already includes those entries).\n";
+        stream << "functions = [\n";
+        size_t count = 0;
+        std::unordered_set<size_t> written;
+        for (const auto& fn : functions)
+        {
+            auto pdata = pdataFunctions.find(fn.base);
+            if (pdata != pdataFunctions.end() && pdata->second == fn.size)
+                continue;
+            // The register save/restore helpers (and anything else the recompiler names itself)
+            // come from their own config keys; listing them here would turn them into sub_X.
+            auto symbol = image.symbols.find(fn.base);
+            if (symbol != image.symbols.end() && symbol->name != fmt::format("sub_{:X}", fn.base))
+                continue;
+            if (!written.insert(fn.base).second)
+                continue; // the config format keeps one entry per address
+            stream << fmt::format("    {{ address = 0x{:X}, size = 0x{:X} }},\n", fn.base, fn.size);
+            ++count;
+        }
+        stream << "]\n";
+        stream.flush();
+        if (!stream)
+            fail(fmt::format("writing {} failed", functionsPath.string()));
+        fmt::println("Wrote {} function(s) to {}", count, functionsPath.string());
+    }
+
+    {
+        std::ofstream stream(switchPath, std::ios::binary);
+        if (!stream)
+            fail(fmt::format("can't write {}", switchPath.string()));
+        stream << "# Written by ReXenon (emit_analysis_path): every switch table this run used, from the switch\n";
+        stream << "# table file and found automatically. Usable as switch_table_file_path.\n";
+        std::vector<uint32_t> bases;
+        for (const auto& [tableBase, table] : config.switchTables)
+            bases.push_back(tableBase);
+        std::sort(bases.begin(), bases.end());
+        for (uint32_t tableBase : bases)
+        {
+            const auto& table = config.switchTables.at(tableBase);
+            stream << fmt::format("\n[[switch]]\nbase = 0x{:X}\nr = {}\nlabels = [\n", tableBase, table.r);
+            for (uint32_t label : table.labels)
+                stream << fmt::format("    0x{:X},\n", label);
+            stream << "]\n";
+        }
+        stream.flush();
+        if (!stream)
+            fail(fmt::format("writing {} failed", switchPath.string()));
+        fmt::println("Wrote {} switch table(s) to {}", config.switchTables.size(), switchPath.string());
+    }
+}
+
+// A function without a .pdata entry is sized by following its branches, and the analysis drops
+// every block after a gap it didn't reach (an exception funclet, a case it couldn't follow). The
+// rest of the function then turns up in the linear scan as fragments that its branches jump into.
+// Merge them back: a branch from a function that was sized by analysis (not .pdata or config) to
+// the middle of a fragment, or a switch case to any part of one, extends the function over it,
+// provided every other function in the merged range is a fragment too. A branch to a fragment's
+// first instruction is left alone: it can be a tail call to a function only called indirectly.
+void Recompiler::MergeFragments()
+{
+    auto word = [&](size_t address, uint32_t& w) -> bool
+        {
+            for (const auto& section : image.sections)
+            {
+                if ((section.flags & SectionFlags_Code) && section.data != nullptr && address >= section.base && address + 4 <= section.base + section.size &&
+                    section.data + (address - section.base) + 4 <= image.data.get() + image.size)
+                {
+                    w = ByteSwap(*(const uint32_t*)(section.data + address - section.base));
+                    return true;
+                }
+            }
+            return false;
+        };
+
+    // Addresses the program takes the address of: a word in a data section that points into code,
+    // or a lis + addi/ori pair in code that builds one. A fragment starting at one of these may be
+    // a function reached only through a pointer (a vtable entry, a callback), so it is never
+    // absorbed: its entry point has to survive. (Pointers computed some other way aren't seen.)
+    auto isCode = [&](size_t address)
+        {
+            uint32_t w;
+            return (address & 3) == 0 && word(address, w);
+        };
+    // The words of known switch patterns (lis/addi of the table and of the case code's base, from
+    // the pattern start up to its bctr).
+    std::unordered_set<size_t> switchPatternWords;
+    for (const auto& [tableBase, table] : config.switchTables)
+    {
+        for (size_t address = tableBase; address < tableBase + 32 * 4; address += 4)
+        {
+            uint32_t w;
+            if (!word(address, w))
+                break;
+            switchPatternWords.insert(address);
+            if (w == 0x4E800420) // bctr
+                break;
+        }
+    }
+
+    std::unordered_set<size_t> addressTaken;
+    for (const auto& section : image.sections)
+    {
+        if (section.data == nullptr)
+            continue;
+        // A section's virtual size can run past the loaded image (a zero-filled tail): stop there.
+        const uint8_t* imageEnd = image.data.get() + image.size;
+        const size_t size = section.data >= imageEnd ? 0 : std::min<size_t>(section.size, imageEnd - section.data);
+        if (!(section.flags & SectionFlags_Code))
+        {
+            for (size_t offset = 0; offset + 4 <= size; offset += 4)
+            {
+                const size_t target = ByteSwap(*(const uint32_t*)(section.data + offset));
+                if (isCode(target))
+                    addressTaken.insert(target);
+            }
+            continue;
+        }
+        for (size_t offset = 0; offset + 4 <= size; offset += 4)
+        {
+            const uint32_t w = ByteSwap(*(const uint32_t*)(section.data + offset));
+            const uint32_t op = w >> 26;
+            if (op != 14 && op != 24) // addi, ori
+                continue;
+            if (switchPatternWords.count(section.base + offset))
+                continue; // a switch's table or case-code base, not a function pointer
+            const uint32_t source = op == 14 ? (w >> 16) & 0x1F : (w >> 21) & 0x1F;
+            if (op == 14 && source == 0)
+                continue; // li
+            for (size_t back = 1; back <= 8 && back * 4 <= offset; back++)
+            {
+                const uint32_t previous = ByteSwap(*(const uint32_t*)(section.data + offset - back * 4));
+                if ((previous >> 26) == 15 && ((previous >> 16) & 0x1F) == 0 && ((previous >> 21) & 0x1F) == source) // lis source
+                {
+                    const uint32_t high = previous << 16;
+                    const size_t target = op == 14 ? uint32_t(high + int32_t(int16_t(w & 0xFFFF))) : (high | (w & 0xFFFF));
+                    if (isCode(target))
+                        addressTaken.insert(target);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Case labels sit in .rdata tables too, but they are not entry points.
+    for (const auto& [tableBase, table] : config.switchTables)
+        for (uint32_t label : table.labels)
+            addressTaken.erase(label);
+
+    // (target, from a switch case)
+    auto targetsOf = [&](size_t address, std::vector<std::pair<size_t, bool>>& targets)
+        {
+            uint32_t w;
+            if (!word(address, w))
+                return;
+            if (!PPC_BL(w))
+            {
+                if (PPC_OP(w) == PPC_OP_B && !PPC_BA(w))
+                    targets.emplace_back(address + PPC_BI(w), false);
+                else if (PPC_OP(w) == PPC_OP_BC && !PPC_BA(w))
+                    targets.emplace_back(address + PPC_BD(w), false);
+            }
+            auto switchTable = config.switchTables.find(uint32_t(address));
+            if (switchTable != config.switchTables.end())
+            {
+                for (uint32_t label : switchTable->second.labels)
+                    targets.emplace_back(label, true);
+            }
+        };
+
+    auto indexOf = [&](size_t base) -> size_t
+        {
+            for (size_t i = 0; i < functions.size(); i++)
+                if (functions[i].base == base)
+                    return i;
+            return functions.size();
+        };
+
+    size_t merges = 0;
+    for (bool changed = true; changed; )
+    {
+        changed = false;
+        for (size_t i = 0; i < functions.size() && !changed; i++)
+        {
+            if (!analysedFunctions.count(functions[i].base))
+                continue;
+
+            const size_t fnBase = functions[i].base;
+            const size_t fnEnd = fnBase + functions[i].size;
+            std::vector<std::pair<size_t, bool>> targets;
+            for (size_t address = fnBase; address < fnEnd; address += 4)
+                targetsOf(address, targets);
+
+            for (auto [target, fromSwitch] : targets)
+            {
+                if ((target >= fnBase && target < fnEnd) || (target & 3) != 0)
+                    continue;
+                auto containing = image.symbols.findContaining(target);
+                if (containing == image.symbols.end() || !scanFragments.count(containing->address))
+                    continue;
+                if (containing->address == target && !fromSwitch)
+                    continue;
+
+                // The merged range runs from the earlier start to the later end. The function at
+                // its start keeps its name; a fragment can only be absorbed, never an entry point.
+                const size_t start = (std::min)(fnBase, size_t(containing->address));
+                const size_t end = (std::max)(fnEnd, size_t(containing->address + containing->size));
+                if (start != fnBase && !scanFragments.count(fnBase))
+                    continue;
+
+                bool ok = true;
+                std::vector<size_t> absorbed;
+                for (const auto& f : functions)
+                {
+                    if (f.base == start || f.base + f.size <= start || f.base >= end)
+                        continue;
+                    if (f.base < start || !scanFragments.count(f.base) || addressTaken.count(f.base))
+                    {
+                        ok = false;
+                        break;
+                    }
+                    absorbed.push_back(f.base);
+                }
+                if (!ok || indexOf(start) == functions.size())
+                    continue;
+
+                for (size_t base : absorbed)
+                {
+                    auto symbol = image.symbols.find(base);
+                    if (symbol != image.symbols.end() && symbol->address == base)
+                        image.symbols.erase(symbol);
+                    const size_t index = indexOf(base);
+                    if (index != functions.size())
+                        functions.erase(functions.begin() + index);
+                    scanFragments.erase(base);
+                    analysedFunctions.erase(base);
+                }
+
+                const size_t ownerIndex = indexOf(start);
+                auto ownerSymbol = image.symbols.find(start);
+                const std::string name = ownerSymbol->name;
+                image.symbols.erase(ownerSymbol);
+                image.symbols.emplace(name, start, end - start, Symbol_Function);
+                functions[ownerIndex].size = end - start;
+                fmt::println("Merged {} fragment(s) into {} ({:X}-{:X}): {} from {:X} reaches {:X}", absorbed.size(), name, start, end, fromSwitch ? "a switch case" : "a branch", fnBase, target);
+                ++merges;
+                changed = true;
+                break;
+            }
+        }
+    }
+    if (merges != 0)
+        fmt::println("{} function(s) extended over fragments the analysis cut off", merges);
+}
+
+// A branch (b/bc without link, or a switch case) from one function into the middle of another,
+// landing right after an instruction that never falls through (b, blr, bctr, or a call to a
+// noreturn kernel import), means the second function was sized too far: the target is the start of
+// a function of its own, usually an exception funclet or a routine placed after KeBugCheck. Split it
+// there, so the branch becomes a tail call instead of an unresolved branch.
+// Only when no branch in the part before the target enters the part after it, and none in the part
+// after goes back, so each piece is self-contained and no register state flows between them.
+void Recompiler::SplitStrandedFunctions()
+{
+    auto word = [&](size_t address, uint32_t& w) -> bool
+        {
+            auto* p = (const uint32_t*)image.Find(address);
+            if (p == nullptr)
+                return false;
+            w = ByteSwap(*p);
+            return true;
+        };
+
+    // Static branch targets of the instruction at address (none for calls and indirect branches).
+    auto targetsOf = [&](size_t address, std::vector<size_t>& targets)
+        {
+            uint32_t w;
+            if (!word(address, w))
+                return;
+            if (!PPC_BL(w))
+            {
+                if (PPC_OP(w) == PPC_OP_B)
+                    targets.push_back(PPC_BA(w) ? size_t(uint32_t(PPC_BI(w))) : address + PPC_BI(w));
+                else if (PPC_OP(w) == PPC_OP_BC)
+                    targets.push_back(PPC_BA(w) ? size_t(uint32_t(PPC_BD(w))) : address + PPC_BD(w));
+            }
+            auto switchTable = config.switchTables.find(address);
+            if (switchTable != config.switchTables.end())
+                targets.insert(targets.end(), switchTable->second.labels.begin(), switchTable->second.labels.end());
+        };
+
+    auto neverFallsThrough = [&](size_t address, const char*& why) -> bool
+        {
+            uint32_t w;
+            if (!word(address, w))
+                return false;
+            if (PPC_OP(w) == PPC_OP_B)
+            {
+                if (!PPC_BL(w))
+                {
+                    why = "b";
+                    return true;
+                }
+                const size_t target = PPC_BA(w) ? size_t(uint32_t(PPC_BI(w))) : address + PPC_BI(w);
+                auto symbol = image.symbols.find(target);
+                if (symbol != image.symbols.end() && symbol->address == target &&
+                    (symbol->name == "__imp__KeBugCheck" || symbol->name == "__imp__KeBugCheckEx"))
+                {
+                    why = "a call to KeBugCheck";
+                    return true;
+                }
+                return false;
+            }
+            // bclr/bcctr with BO "branch always" and no link
+            if (PPC_OP(w) == PPC_OP_CTR && !PPC_BL(w) && (PPC_BO(w) & 0x14) == 0x14)
+            {
+                if (PPC_XOP(w) == 16)
+                {
+                    why = "blr";
+                    return true;
+                }
+                if (PPC_XOP(w) == 528)
+                {
+                    why = "bctr";
+                    return true;
+                }
+            }
+            return false;
+        };
+
+    size_t splits = 0;
+    for (bool changed = true; changed; )
+    {
+        changed = false;
+        for (size_t i = 0; i < functions.size(); i++)
+        {
+            const size_t fnBase = functions[i].base;
+            const size_t fnEnd = fnBase + functions[i].size;
+
+            std::vector<size_t> targets;
+            for (size_t address = fnBase; address < fnEnd; address += 4)
+                targetsOf(address, targets);
+
+            for (size_t target : targets)
+            {
+                if ((target >= fnBase && target < fnEnd) || (target & 3) != 0)
+                    continue;
+
+                auto exact = image.symbols.find(target);
+                if (exact != image.symbols.end() && exact->address == target)
+                    continue;
+
+                auto containing = image.symbols.findContaining(target);
+                if (containing == image.symbols.end())
+                    continue;
+
+                const size_t ownerBase = containing->address;
+                const size_t ownerEnd = ownerBase + containing->size;
+                const char* why = nullptr;
+                if (!neverFallsThrough(target - 4, why))
+                    continue;
+
+                size_t owner = functions.size();
+                for (size_t j = 0; j < functions.size(); j++)
+                {
+                    if (functions[j].base == ownerBase && functions[j].base + functions[j].size == ownerEnd)
+                    {
+                        owner = j;
+                        break;
+                    }
+                }
+                if (owner == functions.size())
+                    continue;
+
+                bool crossing = false;
+                std::vector<size_t> inner;
+                for (size_t address = ownerBase; address < ownerEnd && !crossing; address += 4)
+                {
+                    inner.clear();
+                    targetsOf(address, inner);
+                    for (size_t t : inner)
+                    {
+                        const bool fromHead = address < target;
+                        if (fromHead ? (t >= target && t < ownerEnd) : (t >= ownerBase && t < target))
+                            crossing = true;
+                    }
+                }
+                if (crossing)
+                    continue;
+
+                const std::string name = containing->name;
+                image.symbols.erase(containing);
+                image.symbols.emplace(name, ownerBase, target - ownerBase, Symbol_Function);
+                image.symbols.emplace(fmt::format("sub_{:X}", target), target, ownerEnd - target, Symbol_Function);
+                functions[owner].size = target - ownerBase;
+                functions.emplace_back(target, ownerEnd - target);
+
+                fmt::println("Split {} at {:X} (branched to from {:X}; it follows {})", name, target, fnBase, why);
+                ++splits;
+                changed = true;
+                break;
+            }
+        }
+    }
+
+    if (splits != 0)
+        fmt::println("Split {} {} at stranded branch targets", splits, splits == 1 ? "function" : "functions");
 }
 
 bool Recompiler::Recompile(
@@ -392,6 +968,10 @@ bool Recompiler::Recompile(
                     {
                         // print nothing
                     }
+                    else if (emptyFunctions.count(address))
+                    {
+                        println("	// {} is only blr", targetSymbol->name);
+                    }
                     else
                     {
                         println("\t{}(ctx, base);", targetSymbol->name);
@@ -402,7 +982,11 @@ bool Recompiler::Recompile(
                     // Not a function start: the target is inside another function (a shared epilogue
                     // or a mis-sized function). Trap instead of silently returning.
                     println("\tPPC_UNRESOLVED_BRANCH(0x{:X}, 0x{:X});", base, address);
-                    problem("{:X} (in {:X}): branch to {:X}, which isn't a function start", base, fn.base, address);
+                    auto containing = image.symbols.findContaining(address);
+                    if (containing != image.symbols.end())
+                        problem("{:X} (in {:X}): branch to {:X}, which is inside {} ({:X}-{:X})", base, fn.base, address, containing->name, containing->address, containing->address + containing->size);
+                    else
+                        problem("{:X} (in {:X}): branch to {:X}, which isn't in any function", base, fn.base, address);
                 }
             }
         };
@@ -434,6 +1018,165 @@ bool Recompiler::Recompile(
 
                 csrState = newState;
             }
+        };
+
+    // Any bc/bclr/bcctr form without a case of its own (the disassembler has a name for every BO/BI
+    // combination: beqctrl, bdnzflr, bsol...), decoded from the instruction's BO and BI fields.
+    auto printGenericBranch = [&]() -> bool
+        {
+            const uint32_t w = ByteSwap(*data);
+            const uint32_t op = PPC_OP(w);
+            enum class Kind { Bc, Bclr, Bcctr } kind;
+            if (op == PPC_OP_BC)
+                kind = Kind::Bc;
+            else if (op == PPC_OP_CTR && PPC_XOP(w) == 16)
+                kind = Kind::Bclr;
+            else if (op == PPC_OP_CTR && PPC_XOP(w) == 528)
+                kind = Kind::Bcctr;
+            else
+                return false;
+
+            const uint32_t bo = (w >> 21) & 0x1F;
+            const uint32_t bi = (w >> 16) & 0x1F;
+            const bool link = (w & 1) != 0;
+
+            // bcctr can't decrement CTR (the form is invalid).
+            if (kind == Kind::Bcctr && !(bo & 0x04))
+            {
+                println("\tPPC_UNIMPLEMENTED(0x{:X}, \"bcctr with BO 0x{:X}\");", base, bo);
+                problem("{:X} (in {:X}): bcctr with BO 0x{:X} (decrements CTR, an invalid form)", base, fn.base, bo);
+                return true;
+            }
+
+            std::string cond;
+            if (!(bo & 0x04))
+            {
+                println("\t--{}.u64;", ctr());
+                cond = fmt::format("{}.u32 {} 0", ctr(), (bo & 0x02) ? "==" : "!=");
+            }
+            if (!(bo & 0x10))
+            {
+                constexpr const char* bits[] = { "lt", "gt", "eq", "so" };
+                std::string test = fmt::format("{}{}.{}", (bo & 0x08) ? "" : "!", cr(bi / 4), bits[bi % 4]);
+                cond = cond.empty() ? test : cond + " && " + test;
+            }
+            if (cond.empty())
+                cond = "true";
+
+            if (kind == Kind::Bc)
+            {
+                const size_t target = (w & 2) ? size_t(uint32_t(PPC_BD(w))) : base + PPC_BD(w);
+                if (link && target == base + 4 && cond == "true")
+                {
+                    // bcl 20,31,$+4: reads the PC into LR.
+                    println("\tctx.lr = 0x{:X};", base + 4);
+                }
+                else if (!link && target >= fn.base && target < fn.base + fn.size)
+                {
+                    println("\tif ({}) goto loc_{:X};", cond, target);
+                }
+                else
+                {
+                    // With LK set, LR is written whether or not the branch is taken.
+                    if (link && !config.skipLr)
+                        println("\tctx.lr = 0x{:X};", base + 4);
+                    println("\tif ({}) {{", cond);
+                    print("\t");
+                    printFunctionCall(target);
+                    if (!link)
+                        println("\t\treturn;");
+                    println("\t}}");
+                    if (link)
+                        csrState = CSRState::Unknown;
+                }
+            }
+            else if (kind == Kind::Bclr)
+            {
+                if (!link)
+                {
+                    println("\tif ({}) return;", cond);
+                }
+                else
+                {
+                    // The target is the old LR; LR is written whether or not the branch is taken.
+                    println("\t{{ uint32_t target = ctx.lr; ctx.lr = 0x{:X}; if ({}) PPC_CALL_INDIRECT_FUNC(target); }}", base + 4, cond);
+                    csrState = CSRState::Unknown;
+                }
+            }
+            else
+            {
+                if (link && !config.skipLr)
+                    println("\tctx.lr = 0x{:X};", base + 4);
+                println("\tif ({}) {{", cond);
+                println("\t\tPPC_CALL_INDIRECT_FUNC({}.u32);", ctr());
+                if (!link)
+                    println("\t\treturn;");
+                println("\t}}");
+                if (link)
+                    csrState = CSRState::Unknown;
+            }
+            return true;
+        };
+
+    // tw/twi/td/tdi and all their aliases, decoded from TO. Games use traps for asserts and debug
+    // breaks; on a retail console they raise an exception. PPC_TRAP does nothing unless the port
+    // defines it (to log the assert, for example).
+    auto printGenericTrap = [&]() -> bool
+        {
+            const uint32_t w = ByteSwap(*data);
+            const uint32_t op = PPC_OP(w);
+            bool immediate, doubleword;
+            if (op == 3)
+                immediate = true, doubleword = false;           // twi
+            else if (op == 2)
+                immediate = true, doubleword = true;            // tdi
+            else if (op == 31 && PPC_XOP(w) == 4)
+                immediate = false, doubleword = false;          // tw
+            else if (op == 31 && PPC_XOP(w) == 68)
+                immediate = false, doubleword = true;           // td
+            else
+                return false;
+
+            const uint32_t to = (w >> 21) & 0x1F;
+            const uint32_t ra = (w >> 16) & 0x1F;
+            if (to == 0)
+                return true; // never traps
+
+            const char* s = doubleword ? "s64" : "s32";
+            const char* u = doubleword ? "u64" : "u32";
+            const std::string lhsS = fmt::format("{}.{}", r(ra), s);
+            const std::string lhsU = fmt::format("{}.{}", r(ra), u);
+            std::string rhsS, rhsU;
+            if (immediate)
+            {
+                const int32_t simm = int16_t(w & 0xFFFF);
+                rhsS = doubleword ? fmt::format("int64_t({})", simm) : fmt::format("int32_t({})", simm);
+                rhsU = doubleword ? fmt::format("uint64_t(int64_t({}))", simm) : fmt::format("uint32_t({})", simm);
+            }
+            else
+            {
+                const uint32_t rb = (w >> 11) & 0x1F;
+                rhsS = fmt::format("{}.{}", r(rb), s);
+                rhsU = fmt::format("{}.{}", r(rb), u);
+            }
+
+            std::string cond;
+            auto add = [&](uint32_t bit, const std::string& test)
+                {
+                    if (to & bit)
+                        cond += (cond.empty() ? "" : " || ") + test;
+                };
+            add(0x10, lhsS + " < " + rhsS);
+            add(0x08, lhsS + " > " + rhsS);
+            add(0x04, lhsS + " == " + rhsS);
+            add(0x02, lhsU + " < " + rhsU);
+            add(0x01, lhsU + " > " + rhsU);
+
+            if (to == 0x1F)
+                println("\tPPC_TRAP(0x{:X});", base);
+            else
+                println("\tif ({}) PPC_TRAP(0x{:X});", cond, base);
+            return true;
         };
 
     auto midAsmHook = config.midAsmHooks.find(base);
@@ -526,8 +1269,587 @@ bool Recompiler::Recompile(
     if (id == PPC_INST_VUPKHSB128 && insn.operands[2] == 0x60) id = PPC_INST_VUPKHSH128;
     else if (id == PPC_INST_VUPKLSB128 && insn.operands[2] == 0x60) id = PPC_INST_VUPKLSH128;
 
+    // O forms set XER[OV] (and the sticky XER[SO]) from the inputs, then do the base operation.
+    // Overflow is Xenon's 32-bit-mode one: the exact sum of the sign-extended low words doesn't fit
+    // in 32 bits. Divides overflow on a zero divisor or INT_MIN / -1, mulldo on 64 bits.
+    {
+        auto A = [&]() { return r(insn.operands[1]); };
+        auto B = [&]() { return r(insn.operands[2]); };
+        auto printOverflow = [&](const std::string& condition)
+            {
+                println("\t{}.ov = {};", xer(), condition);
+                println("\t{}.so |= {}.ov;", xer(), xer());
+            };
+        auto printOverflow32 = [&](const std::string& wide, const std::string& narrow)
+            {
+                printOverflow(fmt::format("({}) != int64_t(int32_t({}))", wide, narrow));
+            };
+
+        switch (id)
+        {
+        case PPC_INST_ADDO: printOverflow32(fmt::format("int64_t({}.s32) + {}.s32", A(), B()), fmt::format("{}.u32 + {}.u32", A(), B())); id = PPC_INST_ADD; break;
+        case PPC_INST_ADDCO: printOverflow32(fmt::format("int64_t({}.s32) + {}.s32", A(), B()), fmt::format("{}.u32 + {}.u32", A(), B())); id = PPC_INST_ADDC; break;
+        case PPC_INST_ADDEO: printOverflow32(fmt::format("int64_t({}.s32) + {}.s32 + {}.ca", A(), B(), xer()), fmt::format("{}.u32 + {}.u32 + {}.ca", A(), B(), xer())); id = PPC_INST_ADDE; break;
+        case PPC_INST_ADDMEO: printOverflow32(fmt::format("int64_t({}.s32) + {}.ca - 1", A(), xer()), fmt::format("{}.u32 + {}.ca - 1", A(), xer())); id = PPC_INST_ADDME; break;
+        case PPC_INST_ADDZEO: printOverflow32(fmt::format("int64_t({}.s32) + {}.ca", A(), xer()), fmt::format("{}.u32 + {}.ca", A(), xer())); id = PPC_INST_ADDZE; break;
+        case PPC_INST_SUBFO: printOverflow32(fmt::format("int64_t({}.s32) - {}.s32", B(), A()), fmt::format("{}.u32 - {}.u32", B(), A())); id = PPC_INST_SUBF; break;
+        case PPC_INST_SUBFCO: printOverflow32(fmt::format("int64_t({}.s32) - {}.s32", B(), A()), fmt::format("{}.u32 - {}.u32", B(), A())); id = PPC_INST_SUBFC; break;
+        case PPC_INST_SUBFEO: printOverflow32(fmt::format("int64_t(~{}.s32) + {}.s32 + {}.ca", A(), B(), xer()), fmt::format("~{}.u32 + {}.u32 + {}.ca", A(), B(), xer())); id = PPC_INST_SUBFE; break;
+        case PPC_INST_SUBFMEO: printOverflow32(fmt::format("int64_t(~{}.s32) + {}.ca - 1", A(), xer()), fmt::format("~{}.u32 + {}.ca - 1", A(), xer())); id = PPC_INST_SUBFME; break;
+        case PPC_INST_SUBFZEO: printOverflow32(fmt::format("int64_t(~{}.s32) + {}.ca", A(), xer()), fmt::format("~{}.u32 + {}.ca", A(), xer())); id = PPC_INST_SUBFZE; break;
+        case PPC_INST_NEGO: printOverflow(fmt::format("{}.u32 == 0x80000000", A())); id = PPC_INST_NEG; break;
+        case PPC_INST_MULLWO: printOverflow32(fmt::format("int64_t({}.s32) * {}.s32", A(), B()), fmt::format("int64_t({}.s32) * {}.s32", A(), B())); id = PPC_INST_MULLW; break;
+        case PPC_INST_MULLDO: printOverflow(fmt::format("[&] {{ int64_t p; return __builtin_mul_overflow({}.s64, {}.s64, &p); }}()", A(), B())); id = PPC_INST_MULLD; break;
+        case PPC_INST_DIVWO: printOverflow(fmt::format("{1}.s32 == 0 || ({0}.s32 == INT32_MIN && {1}.s32 == -1)", A(), B())); id = PPC_INST_DIVW; break;
+        case PPC_INST_DIVWUO: printOverflow(fmt::format("{}.u32 == 0", B())); id = PPC_INST_DIVWU; break;
+        case PPC_INST_DIVDO: printOverflow(fmt::format("{1}.s64 == 0 || ({0}.s64 == INT64_MIN && {1}.s64 == -1)", A(), B())); id = PPC_INST_DIVD; break;
+        case PPC_INST_DIVDUO: printOverflow(fmt::format("{}.u64 == 0", B())); id = PPC_INST_DIVDU; break;
+        }
+    }
+
+    // Everything one instruction prints starts here (used by the record-form check after the switch).
+    const size_t outStart = out.size();
+
     switch (id)
     {
+    case PPC_INST_VCMPGTSB:
+    case PPC_INST_VCMPGTSH:
+    case PPC_INST_VCMPGTSW:
+    case PPC_INST_VCMPEQUH:
+    case PPC_INST_VMAXSB:
+    case PPC_INST_VMAXSH:
+    case PPC_INST_VMAXUB:
+    case PPC_INST_VMAXUH:
+    case PPC_INST_VMAXUW:
+    case PPC_INST_VMINSB:
+    case PPC_INST_VMINSH:
+    case PPC_INST_VMINSW:
+    case PPC_INST_VMINUB:
+    case PPC_INST_VMINUH:
+    case PPC_INST_VMINUW:
+    case PPC_INST_VADDUHS:
+    case PPC_INST_VSUBUHS:
+    case PPC_INST_VSUBSBS:
+    case PPC_INST_VSUBSHS:
+    case PPC_INST_VSUBUBM:
+    case PPC_INST_VAVGUH:
+    case PPC_INST_VPKSHSS:
+    case PPC_INST_VPKSHSS128:
+    case PPC_INST_VPKSWUS:
+    case PPC_INST_VPKSWUS128:
+    {
+        // One SSE intrinsic each. Elementwise ops don't care that the vector is stored reversed;
+        // packs take vB first (its elements are the low half of the reversed result).
+        const char* intrinsic = nullptr;
+        bool pack = false;
+        switch (id)
+        {
+        case PPC_INST_VCMPGTSB: intrinsic = "cmpgt_epi8"; break;
+        case PPC_INST_VCMPGTSH: intrinsic = "cmpgt_epi16"; break;
+        case PPC_INST_VCMPGTSW: intrinsic = "cmpgt_epi32"; break;
+        case PPC_INST_VCMPEQUH: intrinsic = "cmpeq_epi16"; break;
+        case PPC_INST_VMAXSB: intrinsic = "max_epi8"; break;
+        case PPC_INST_VMAXSH: intrinsic = "max_epi16"; break;
+        case PPC_INST_VMAXUB: intrinsic = "max_epu8"; break;
+        case PPC_INST_VMAXUH: intrinsic = "max_epu16"; break;
+        case PPC_INST_VMAXUW: intrinsic = "max_epu32"; break;
+        case PPC_INST_VMINSB: intrinsic = "min_epi8"; break;
+        case PPC_INST_VMINSH: intrinsic = "min_epi16"; break;
+        case PPC_INST_VMINSW: intrinsic = "min_epi32"; break;
+        case PPC_INST_VMINUB: intrinsic = "min_epu8"; break;
+        case PPC_INST_VMINUH: intrinsic = "min_epu16"; break;
+        case PPC_INST_VMINUW: intrinsic = "min_epu32"; break;
+        case PPC_INST_VADDUHS: intrinsic = "adds_epu16"; break;
+        case PPC_INST_VSUBUHS: intrinsic = "subs_epu16"; break;
+        case PPC_INST_VSUBSBS: intrinsic = "subs_epi8"; break;
+        case PPC_INST_VSUBSHS: intrinsic = "subs_epi16"; break;
+        case PPC_INST_VSUBUBM: intrinsic = "sub_epi8"; break;
+        case PPC_INST_VAVGUH: intrinsic = "avg_epu16"; break;
+        case PPC_INST_VPKSHSS: case PPC_INST_VPKSHSS128: intrinsic = "packs_epi16"; pack = true; break;
+        case PPC_INST_VPKSWUS: case PPC_INST_VPKSWUS128: intrinsic = "packus_epi32"; pack = true; break;
+        }
+        const auto first = v(insn.operands[pack ? 2 : 1]);
+        const auto second = v(insn.operands[pack ? 1 : 2]);
+        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_{}(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), intrinsic, first, second);
+        break;
+    }
+
+    case PPC_INST_VAVGUW:
+    case PPC_INST_VAVGSW:
+    case PPC_INST_VSUBUWS:
+    case PPC_INST_VADDCUW:
+    case PPC_INST_VSUBCUW:
+    case PPC_INST_VRLW:
+    case PPC_INST_VRLW128:
+    {
+        // Word ops without an SSE instruction, element by element.
+        for (size_t i = 0; i < 4; i++)
+        {
+            const auto d = v(insn.operands[0]), a = v(insn.operands[1]), b = v(insn.operands[2]);
+            switch (id)
+            {
+            case PPC_INST_VAVGUW: println("\t{}.u32[{}] = uint32_t((uint64_t({}.u32[{}]) + {}.u32[{}] + 1) >> 1);", d, i, a, i, b, i); break;
+            case PPC_INST_VAVGSW: println("\t{}.s32[{}] = int32_t((int64_t({}.s32[{}]) + {}.s32[{}] + 1) >> 1);", d, i, a, i, b, i); break;
+            case PPC_INST_VSUBUWS: println("\t{}.u32[{}] = {}.u32[{}] < {}.u32[{}] ? 0 : {}.u32[{}] - {}.u32[{}];", d, i, a, i, b, i, a, i, b, i); break;
+            case PPC_INST_VADDCUW: println("\t{}.u32[{}] = uint32_t((uint64_t({}.u32[{}]) + {}.u32[{}]) >> 32);", d, i, a, i, b, i); break;
+            case PPC_INST_VSUBCUW: println("\t{}.u32[{}] = {}.u32[{}] >= {}.u32[{}];", d, i, a, i, b, i); break;
+            default: println("\t{}.u32[{}] = __builtin_rotateleft32({}.u32[{}], {}.u32[{}] & 0x1F);", d, i, a, i, b, i); break;
+            }
+        }
+        break;
+    }
+
+    case PPC_INST_VRLB:
+    case PPC_INST_VRLH:
+    case PPC_INST_VSLH:
+    case PPC_INST_VSRH:
+    case PPC_INST_VSRAH:
+    case PPC_INST_VSRAB:
+    {
+        // Per-element shifts and rotates, count from the same element of vB (low bits).
+        const bool bytes = id == PPC_INST_VRLB || id == PPC_INST_VSRAB;
+        const size_t n = bytes ? 16 : 8;
+        const char* u = bytes ? "u8" : "u16";
+        const char* sgn = bytes ? "s8" : "s16";
+        const uint32_t mask = bytes ? 7 : 15;
+        for (size_t i = 0; i < n; i++)
+        {
+            const auto d = v(insn.operands[0]), a = v(insn.operands[1]), b = v(insn.operands[2]);
+            switch (id)
+            {
+            case PPC_INST_VRLB: println("\t{}.u8[{}] = __builtin_rotateleft8({}.u8[{}], {}.u8[{}] & 7);", d, i, a, i, b, i); break;
+            case PPC_INST_VRLH: println("\t{}.u16[{}] = __builtin_rotateleft16({}.u16[{}], {}.u16[{}] & 15);", d, i, a, i, b, i); break;
+            case PPC_INST_VSLH: println("\t{}.{}[{}] = {}.{}[{}] << ({}.{}[{}] & {});", d, u, i, a, u, i, b, u, i, mask); break;
+            case PPC_INST_VSRH: println("\t{}.{}[{}] = {}.{}[{}] >> ({}.{}[{}] & {});", d, u, i, a, u, i, b, u, i, mask); break;
+            default: println("\t{}.{}[{}] = {}.{}[{}] >> ({}.{}[{}] & {});", d, sgn, i, a, sgn, i, b, u, i, mask); break;
+            }
+        }
+        break;
+    }
+
+    case PPC_INST_VPKUHUM:
+    case PPC_INST_VPKUHUM128:
+    case PPC_INST_VPKUWUM:
+    case PPC_INST_VPKUWUM128:
+    case PPC_INST_VPKUHUS:
+    case PPC_INST_VPKUHUS128:
+    case PPC_INST_VPKUWUS:
+    case PPC_INST_VPKUWUS128:
+    case PPC_INST_VPKPX:
+    {
+        // Packs without an SSE instruction (unsigned in, modulo or unsigned saturation; pixel).
+        // vD = pack(vA) || pack(vB) big-endian, so vB fills the low half of the reversed storage.
+        // Built in vTemp: vD may be vA or vB.
+        const bool halves = id == PPC_INST_VPKUHUM || id == PPC_INST_VPKUHUM128 || id == PPC_INST_VPKUHUS || id == PPC_INST_VPKUHUS128;
+        const bool saturate = id == PPC_INST_VPKUHUS || id == PPC_INST_VPKUHUS128 || id == PPC_INST_VPKUWUS || id == PPC_INST_VPKUWUS128;
+        const size_t n = halves ? 8 : 4;
+        for (size_t i = 0; i < 2 * n; i++)
+        {
+            const auto src = v(insn.operands[i < n ? 2 : 1]);
+            const size_t j = i % n;
+            if (id == PPC_INST_VPKPX)
+                println("\t{}.u16[{}] = uint16_t((({}.u32[{}] >> 24) & 1) << 15 | (({}.u32[{}] >> 19) & 0x1F) << 10 | (({}.u32[{}] >> 11) & 0x1F) << 5 | (({}.u32[{}] >> 3) & 0x1F));",
+                    vTemp(), i, src, j, src, j, src, j, src, j);
+            else if (halves && saturate)
+                println("\t{}.u8[{}] = {}.u16[{}] > 0xFF ? 0xFF : uint8_t({}.u16[{}]);", vTemp(), i, src, j, src, j);
+            else if (halves)
+                println("\t{}.u8[{}] = uint8_t({}.u16[{}]);", vTemp(), i, src, j);
+            else if (saturate)
+                println("\t{}.u16[{}] = {}.u32[{}] > 0xFFFF ? 0xFFFF : uint16_t({}.u32[{}]);", vTemp(), i, src, j, src, j);
+            else
+                println("\t{}.u16[{}] = uint16_t({}.u32[{}]);", vTemp(), i, src, j);
+        }
+        println("\t{} = {};", v(insn.operands[0]), vTemp());
+        break;
+    }
+
+    case PPC_INST_VSPLTISH:
+        println("\tsimde_mm_store_si128((simde__m128i*){}.u16, simde_mm_set1_epi16(short({})));", v(insn.operands[0]), int16_t(int32_t(insn.operands[1])));
+        break;
+
+    case PPC_INST_VRFIP:
+    case PPC_INST_VRFIP128:
+        printSetFlushMode(true);
+        println("\tsimde_mm_store_ps({}.f32, simde_mm_round_ps(simde_mm_load_ps({}.f32), SIMDE_MM_FROUND_TO_POS_INF | SIMDE_MM_FROUND_NO_EXC));", v(insn.operands[0]), v(insn.operands[1]));
+        break;
+
+    case PPC_INST_ADDC:
+        println("\t{}.ca = {}.u32 + {}.u32 < {}.u32;", xer(), r(insn.operands[1]), r(insn.operands[2]), r(insn.operands[1]));
+        println("\t{}.u64 = {}.u64 + {}.u64;", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
+        break;
+
+    case PPC_INST_ADDME:
+        // rA + CA - 1 carries unless rA is 0 and CA is 0.
+        println("\t{}.u8 = ({}.u32 != 0) | {}.ca;", temp(), r(insn.operands[1]), xer());
+        println("\t{}.u64 = {}.u64 + {}.ca - 1;", r(insn.operands[0]), r(insn.operands[1]), xer());
+        println("\t{}.ca = {}.u8;", xer(), temp());
+        break;
+
+    case PPC_INST_SUBFME:
+        // ~rA + CA - 1 carries unless ~rA is 0 and CA is 0.
+        println("\t{}.u8 = ({}.u32 != 0xFFFFFFFF) | {}.ca;", temp(), r(insn.operands[1]), xer());
+        println("\t{}.u64 = ~{}.u64 + {}.ca - 1;", r(insn.operands[0]), r(insn.operands[1]), xer());
+        println("\t{}.ca = {}.u8;", xer(), temp());
+        break;
+
+    case PPC_INST_SUBFZE:
+        // ~rA + CA carries only when rA is 0 and CA is 1.
+        println("\t{}.u8 = ({}.u32 == 0) & {}.ca;", temp(), r(insn.operands[1]), xer());
+        println("\t{}.u64 = ~{}.u64 + {}.ca;", r(insn.operands[0]), r(insn.operands[1]), xer());
+        println("\t{}.ca = {}.u8;", xer(), temp());
+        break;
+
+    case PPC_INST_MULHD:
+        println("\t{}.s64 = int64_t((__int128({}.s64) * {}.s64) >> 64);", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
+        break;
+
+    case PPC_INST_RLDIC:
+        println("\t{}.u64 = __builtin_rotateleft64({}.u64, {}) & 0x{:X};", r(insn.operands[0]), r(insn.operands[1]), insn.operands[2], ComputeMask(insn.operands[3], 63 - insn.operands[2]));
+        break;
+
+    case PPC_INST_ROTLD:
+        println("\t{}.u64 = __builtin_rotateleft64({}.u64, {}.u8 & 0x3F);", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
+        break;
+
+    case PPC_INST_RLDCL:
+        println("\t{}.u64 = __builtin_rotateleft64({}.u64, {}.u8 & 0x3F) & 0x{:X};", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]), ComputeMask(insn.operands[3], 63));
+        break;
+
+    case PPC_INST_RLDCR:
+        println("\t{}.u64 = __builtin_rotateleft64({}.u64, {}.u8 & 0x3F) & 0x{:X};", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]), ComputeMask(0, insn.operands[3]));
+        break;
+
+    case PPC_INST_RLWNM:
+        println("\t{}.u64 = __builtin_rotateleft64({}.u32 | ({}.u64 << 32), {}.u8 & 0x1F) & 0x{:X};", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[1]), r(insn.operands[2]), ComputeMask(insn.operands[3] + 32, insn.operands[4] + 32));
+        break;
+
+    case PPC_INST_CRAND:
+    case PPC_INST_CRANDC:
+    case PPC_INST_CREQV:
+    case PPC_INST_CRNAND:
+    case PPC_INST_CRNOR:
+    case PPC_INST_CROR:
+    case PPC_INST_CRORC:
+    case PPC_INST_CRXOR:
+    case PPC_INST_CRSET:
+    case PPC_INST_CRCLR:
+    case PPC_INST_CRNOT:
+    case PPC_INST_CRMOVE:
+    {
+        // Decoded from the word: the aliases (crset, crnot, ...) hide some operands.
+        constexpr std::string_view fields[] = { "lt", "gt", "eq", "so" };
+        auto bit = [&](uint32_t b) { return fmt::format("{}.{}", cr(b / 4), fields[b % 4]); };
+        const uint32_t bt = (insn.instruction >> 21) & 0x1F;
+        const uint32_t ba = (insn.instruction >> 16) & 0x1F;
+        const uint32_t bb = (insn.instruction >> 11) & 0x1F;
+        const char* format = nullptr;
+        switch ((insn.instruction >> 1) & 0x3FF)
+        {
+        case 257: format = "{0} & {1}"; break;     // crand
+        case 129: format = "{0} & !{1}"; break;    // crandc
+        case 289: format = "{0} == {1}"; break;    // creqv (crset)
+        case 225: format = "!({0} & {1})"; break;  // crnand
+        case 33: format = "!({0} | {1})"; break;   // crnor (crnot)
+        case 449: format = "{0} | {1}"; break;     // cror (crmove)
+        case 417: format = "{0} | !{1}"; break;    // crorc
+        case 193: format = "{0} ^ {1}"; break;     // crxor (crclr)
+        default: return false;
+        }
+        // Evaluated into temp first: BT may be BA or BB.
+        println("\t{}.u8 = {};", temp(), fmt::format(fmt::runtime(format), bit(ba), bit(bb)));
+        println("\t{} = {}.u8;", bit(bt), temp());
+        break;
+    }
+
+    case PPC_INST_MCRF:
+        println("\t{} = {};", cr((insn.instruction >> 23) & 7), cr((insn.instruction >> 18) & 7));
+        break;
+
+    case PPC_INST_MCRXR:
+    {
+        const auto field = cr((insn.instruction >> 23) & 7);
+        println("\t{}.lt = {}.so;", field, xer());
+        println("\t{}.gt = {}.ov;", field, xer());
+        println("\t{}.eq = {}.ca;", field, xer());
+        println("\t{}.so = 0;", field);
+        println("\t{}.so = 0;", xer());
+        println("\t{}.ov = 0;", xer());
+        println("\t{}.ca = 0;", xer());
+        break;
+    }
+
+    case PPC_INST_MTCRF:
+    case PPC_INST_MTOCRF:
+    {
+        constexpr std::string_view fields[] = { "lt", "gt", "eq", "so" };
+        const uint32_t fxm = (insn.instruction >> 12) & 0xFF;
+        const uint32_t rs = (insn.instruction >> 21) & 0x1F;
+        for (size_t i = 0; i < 32; i++)
+        {
+            if (fxm & (0x80 >> (i / 4)))
+                println("\t{}.{} = ({}.u32 & 0x{:X}) != 0;", cr(i / 4), fields[i % 4], r(rs), 1u << (31 - i));
+        }
+        break;
+    }
+
+    case PPC_INST_CMP:
+    case PPC_INST_CMPL:
+    case PPC_INST_CMPI:
+    case PPC_INST_CMPLI:
+    {
+        // Decoded from the word: L is an optional operand the disassembler may leave out.
+        const uint32_t bf = (insn.instruction >> 23) & 7;
+        const bool l = (insn.instruction >> 21) & 1;
+        const uint32_t ra = (insn.instruction >> 16) & 0x1F;
+        const bool isSigned = id == PPC_INST_CMP || id == PPC_INST_CMPI;
+        const std::string_view type = isSigned ? (l ? "int64_t" : "int32_t") : (l ? "uint64_t" : "uint32_t");
+        const std::string_view field = isSigned ? (l ? "s64" : "s32") : (l ? "u64" : "u32");
+        std::string right;
+        if (id == PPC_INST_CMP || id == PPC_INST_CMPL)
+            right = fmt::format("{}.{}", r((insn.instruction >> 11) & 0x1F), field);
+        else if (isSigned)
+            right = fmt::format("{}", int16_t(insn.instruction & 0xFFFF));
+        else
+            right = fmt::format("{}", insn.instruction & 0xFFFF);
+        println("\t{}.compare<{}>({}.{}, {}, {});", cr(bf), type, r(ra), field, right, xer());
+        break;
+    }
+
+    case PPC_INST_LHAU:
+    case PPC_INST_LHZU:
+    case PPC_INST_LFSU:
+    case PPC_INST_LFDU:
+    case PPC_INST_STHU:
+    case PPC_INST_STFSU:
+    case PPC_INST_STFDU:
+    case PPC_INST_LBZUX:
+    case PPC_INST_LHAUX:
+    case PPC_INST_LHZUX:
+    case PPC_INST_LWZUX:
+    case PPC_INST_LWAUX:
+    case PPC_INST_LDUX:
+    case PPC_INST_LFSUX:
+    case PPC_INST_LFDUX:
+    case PPC_INST_STBUX:
+    case PPC_INST_STHUX:
+    case PPC_INST_STDUX:
+    case PPC_INST_STFSUX:
+    case PPC_INST_STFDUX:
+    {
+        // Update forms: EA = rA + d (or rA + rB), access, then rA = EA.
+        const bool indexed = id == PPC_INST_LBZUX || id == PPC_INST_LHAUX || id == PPC_INST_LHZUX || id == PPC_INST_LWZUX ||
+            id == PPC_INST_LWAUX || id == PPC_INST_LDUX || id == PPC_INST_LFSUX || id == PPC_INST_LFDUX ||
+            id == PPC_INST_STBUX || id == PPC_INST_STHUX || id == PPC_INST_STDUX || id == PPC_INST_STFSUX || id == PPC_INST_STFDUX;
+        const uint32_t ra = indexed ? insn.operands[1] : insn.operands[2];
+        if (indexed)
+            println("\t{} = {}.u32 + {}.u32;", ea(), r(ra), r(insn.operands[2]));
+        else
+            println("\t{} = {} + {}.u32;", ea(), int32_t(insn.operands[1]), r(ra));
+
+        const auto t = insn.operands[0];
+        switch (id)
+        {
+        case PPC_INST_LBZUX: println("\t{}.u64 = PPC_LOAD_U8({});", r(t), ea()); break;
+        case PPC_INST_LHZU: case PPC_INST_LHZUX: println("\t{}.u64 = PPC_LOAD_U16({});", r(t), ea()); break;
+        case PPC_INST_LHAU: case PPC_INST_LHAUX: println("\t{}.s64 = int16_t(PPC_LOAD_U16({}));", r(t), ea()); break;
+        case PPC_INST_LWZUX: println("\t{}.u64 = PPC_LOAD_U32({});", r(t), ea()); break;
+        case PPC_INST_LWAUX: println("\t{}.s64 = int32_t(PPC_LOAD_U32({}));", r(t), ea()); break;
+        case PPC_INST_LDUX: println("\t{}.u64 = PPC_LOAD_U64({});", r(t), ea()); break;
+        case PPC_INST_LFSU: case PPC_INST_LFSUX:
+            printSetFlushMode(false);
+            println("\t{}.u32 = PPC_LOAD_U32({});", temp(), ea());
+            println("\t{}.f64 = double({}.f32);", f(t), temp());
+            break;
+        case PPC_INST_LFDU: case PPC_INST_LFDUX: println("\t{}.u64 = PPC_LOAD_U64({});", f(t), ea()); break;
+        case PPC_INST_STBUX: println("\tPPC_STORE_U8({}, {}.u8);", ea(), r(t)); break;
+        case PPC_INST_STHU: case PPC_INST_STHUX: println("\tPPC_STORE_U16({}, {}.u16);", ea(), r(t)); break;
+        case PPC_INST_STDUX: println("\tPPC_STORE_U64({}, {}.u64);", ea(), r(t)); break;
+        case PPC_INST_STFSU: case PPC_INST_STFSUX:
+            printSetFlushMode(false);
+            println("\t{}.f32 = float({}.f64);", temp(), f(t));
+            println("\tPPC_STORE_U32({}, {}.u32);", ea(), temp());
+            break;
+        case PPC_INST_STFDU: case PPC_INST_STFDUX: println("\tPPC_STORE_U64({}, {}.u64);", ea(), f(t)); break;
+        }
+        println("\t{}.u32 = {};", r(ra), ea());
+        break;
+    }
+
+    case PPC_INST_LMW:
+    case PPC_INST_STMW:
+    {
+        // rT..r31 from/to consecutive words at rA + d (rA can't be in the loaded range).
+        const uint32_t rt = insn.operands[0];
+        print("\t{} = ", ea());
+        if (insn.operands[2] != 0)
+            print("{}.u32 + ", r(insn.operands[2]));
+        println("{};", int32_t(insn.operands[1]));
+        for (uint32_t i = rt; i < 32; i++)
+        {
+            if (id == PPC_INST_LMW)
+                println("\t{}.u64 = PPC_LOAD_U32({} + {});", r(i), ea(), (i - rt) * 4);
+            else
+                println("\tPPC_STORE_U32({} + {}, {}.u32);", ea(), (i - rt) * 4, r(i));
+        }
+        break;
+    }
+
+    case PPC_INST_LSWI:
+    case PPC_INST_STSWI:
+    {
+        // NB bytes (0 = 32) from/to rT, rT+1, ... (wrapping to r0), four per register, big-endian,
+        // a partial last register left-justified with zeros.
+        const uint32_t nb = insn.operands[2] == 0 ? 32 : insn.operands[2];
+        print("\t{} = ", ea());
+        if (insn.operands[1] != 0)
+            println("{}.u32;", r(insn.operands[1]));
+        else
+            println("0;");
+        for (uint32_t i = 0; i < nb; i++)
+        {
+            const uint32_t reg = (insn.operands[0] + i / 4) % 32;
+            const uint32_t shift = 24 - (i % 4) * 8;
+            if (id == PPC_INST_LSWI)
+            {
+                if (i % 4 == 0)
+                    println("\t{}.u64 = 0;", r(reg));
+                println("\t{}.u64 |= uint32_t(PPC_LOAD_U8({} + {})) << {};", r(reg), ea(), i, shift);
+            }
+            else
+            {
+                println("\tPPC_STORE_U8({} + {}, uint8_t({}.u32 >> {}));", ea(), i, r(reg), shift);
+            }
+        }
+        break;
+    }
+
+    case PPC_INST_LDBRX:
+        print("\t{}.u64 = __builtin_bswap64(PPC_LOAD_U64(", r(insn.operands[0]));
+        if (insn.operands[1] != 0)
+            print("{}.u32 + ", r(insn.operands[1]));
+        println("{}.u32));", r(insn.operands[2]));
+        break;
+
+    case PPC_INST_STDBRX:
+        print("\tPPC_STORE_U64(");
+        if (insn.operands[1] != 0)
+            print("{}.u32 + ", r(insn.operands[1]));
+        println("{}.u32, __builtin_bswap64({}.u64));", r(insn.operands[2]), r(insn.operands[0]));
+        break;
+
+    case PPC_INST_FCTIW:
+        // Rounds with the current mode (MXCSR holds the guest's RN), so denormals matter: guest mode.
+        printSetFlushMode(false);
+        println("\t{}.s64 = ({}.f64 > double(INT_MAX)) ? INT_MAX : simde_mm_cvtsd_si32(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
+        break;
+
+    case PPC_INST_FNMADD:
+        printSetFlushMode(false);
+        println("\t{}.f64 = -({}.f64 * {}.f64 + {}.f64);", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[2]), f(insn.operands[3]));
+        break;
+
+    case PPC_INST_MTFSB0:
+    case PPC_INST_MTFSB1:
+    {
+        // Only RN (bits 30-31) is modelled; the other FPSCR bits are ignored.
+        const uint32_t bt = insn.operands[0];
+        if (bt == 30 || bt == 31)
+        {
+            const uint32_t mask = 1u << (31 - bt);
+            if (id == PPC_INST_MTFSB1)
+                println("\tctx.fpscr.storeFromGuest(uint32_t(ctx.fpscr.loadFromHost()) | 0x{:X});", mask);
+            else
+                println("\tctx.fpscr.storeFromGuest(uint32_t(ctx.fpscr.loadFromHost()) & ~0x{:X});", mask);
+        }
+        break;
+    }
+
+    case PPC_INST_MTFSFI:
+        // Field 7 holds RN (the only modelled part); W (ISA 2.05) doesn't exist on Xenon.
+        if (insn.operands[0] == 7)
+            println("\tctx.fpscr.storeFromGuest({});", insn.operands[1] & 0xF);
+        break;
+
+    case PPC_INST_MCRFS:
+    {
+        const auto field = cr(insn.operands[0]);
+        const uint32_t shift = 4 * (7 - insn.operands[1]);
+        println("\t{}.u32 = uint32_t(ctx.fpscr.loadFromHost()) >> {};", temp(), shift);
+        println("\t{}.lt = ({}.u32 >> 3) & 1;", field, temp());
+        println("\t{}.gt = ({}.u32 >> 2) & 1;", field, temp());
+        println("\t{}.eq = ({}.u32 >> 1) & 1;", field, temp());
+        println("\t{}.so = {}.u32 & 1;", field, temp());
+        break;
+    }
+
+    case PPC_INST_MFVSCR:
+        // VSCR isn't modelled: NJ (non-Java mode, denormals flushed) is what the console runs with.
+        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_set_epi32(0, 0, 0, 0x00010000));", v(insn.operands[0]));
+        break;
+
+    case PPC_INST_MTVSCR:
+        // VSCR isn't modelled (vector code always runs with NJ set).
+        break;
+
+    case PPC_INST_ICBI:
+    case PPC_INST_DCBI:
+        // Cache management: nothing to do.
+        break;
+
+    case PPC_INST_STVEBX:
+        print("\t{} = ", ea());
+        if (insn.operands[1] != 0)
+            print("{}.u32 + ", r(insn.operands[1]));
+        println("{}.u32;", r(insn.operands[2]));
+        println("\tPPC_STORE_U8({}, {}.u8[15 - ({} & 0xF)]);", ea(), v(insn.operands[0]), ea());
+        break;
+
+    case PPC_INST_MFXER:
+        println("\t{}.u64 = (uint32_t({}.so) << 31) | (uint32_t({}.ov) << 30) | (uint32_t({}.ca) << 29);", r(insn.operands[0]), xer(), xer(), xer());
+        break;
+
+    case PPC_INST_MFCTR:
+        println("\t{}.u64 = {}.u64;", r(insn.operands[0]), ctr());
+        break;
+
+    case PPC_INST_MFSPR:
+    case PPC_INST_MTSPR:
+    {
+        // The SPR field's halves are swapped in the word.
+        const uint32_t sprField = (insn.instruction >> 11) & 0x3FF;
+        const uint32_t spr = ((sprField & 0x1F) << 5) | (sprField >> 5);
+        const uint32_t reg = (insn.instruction >> 21) & 0x1F;
+        if (id == PPC_INST_MFSPR)
+        {
+            switch (spr)
+            {
+            case 1: println("\t{}.u64 = (uint32_t({}.so) << 31) | (uint32_t({}.ov) << 30) | (uint32_t({}.ca) << 29);", r(reg), xer(), xer(), xer()); break;
+            case 8: if (!config.skipLr) println("\t{}.u64 = ctx.lr;", r(reg)); break;
+            case 9: println("\t{}.u64 = {}.u64;", r(reg), ctr()); break;
+            case 256: println("\t{}.u64 = 0;", r(reg)); break; // VRSAVE (not modelled)
+            case 268: println("\t{}.u64 = PPC_MFTB();", r(reg)); break;
+            case 269: println("\t{}.u64 = PPC_MFTB() >> 32;", r(reg)); break;
+            default: return false;
+            }
+        }
+        else
+        {
+            switch (spr)
+            {
+            case 1:
+                println("\t{}.so = ({}.u64 & 0x80000000) != 0;", xer(), r(reg));
+                println("\t{}.ov = ({}.u64 & 0x40000000) != 0;", xer(), r(reg));
+                println("\t{}.ca = ({}.u64 & 0x20000000) != 0;", xer(), r(reg));
+                break;
+            case 8: if (!config.skipLr) println("\tctx.lr = {}.u64;", r(reg)); break;
+            case 9: println("\t{}.u64 = {}.u64;", ctr(), r(reg)); break;
+            case 256: break; // VRSAVE (not modelled)
+            default: return false;
+            }
+        }
+        break;
+    }
+
     case PPC_INST_ADD:
         println("\t{}.u64 = {}.u64 + {}.u64;", r(insn.operands[0]), r(insn.operands[1]), r(insn.operands[2]));
         if (strchr(insn.opcode->name, '.'))
@@ -633,7 +1955,8 @@ bool Recompiler::Recompile(
             }
 
             println("\tdefault:");
-            println("\t\t__builtin_unreachable();");
+            println("\t\tPPC_SWITCH_MISS(0x{:X}, {}.u32);", base, r(switchTable->second.r));
+            println("\t\treturn;");
             println("\t}}");
 
             switchTable = config.switchTables.end();
@@ -675,12 +1998,6 @@ bool Recompiler::Recompile(
         break;
     }
 
-    case PPC_INST_BDNZF:
-        // NOTE: assuming eq here as a shortcut because all the instructions in the game do that
-        println("\t--{}.u64;", ctr());
-        println("\tif ({}.u32 != 0 && !{}.eq) goto loc_{:X};", ctr(), cr(insn.operands[0] / 4), insn.operands[1]);
-        break;
-
     case PPC_INST_BEQ:
         printConditionalBranch(false, "eq");
         break;
@@ -709,7 +2026,8 @@ bool Recompiler::Recompile(
         if (!config.skipLr)
             println("\tctx.lr = 0x{:X};", base + 4);
         printFunctionCall(insn.operands[0]);
-        csrState = CSRState::Unknown; // the call could change it
+        if (!emptyFunctions.count(insn.operands[0]))
+            csrState = CSRState::Unknown; // the call could change it
         break;
 
     case PPC_INST_BLE:
@@ -867,7 +2185,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_EIEIO:
-        // no op
+        println("\tPPC_EIEIO();");
         break;
 
     case PPC_INST_EXTSB:
@@ -889,7 +2207,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_FABS:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.u64 = {}.u64 & ~0x8000000000000000;", f(insn.operands[0]), f(insn.operands[1]));
         break;
 
@@ -904,11 +2223,13 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_FCFID:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.f64 = double({}.s64);", f(insn.operands[0]), f(insn.operands[1]));
         break;
 
     case PPC_INST_FCMPU:
+    case PPC_INST_FCMPO: // the same compare; FPSCR exception bits aren't modelled
         printSetFlushMode(false);
         println("\t{}.compare({}.f64, {}.f64);", cr(insn.operands[0]), f(insn.operands[1]), f(insn.operands[2]));
         break;
@@ -919,12 +2240,14 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_FCTIDZ:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.s64 = ({}.f64 >= double(LLONG_MAX)) ? LLONG_MAX : simde_mm_cvttsd_si64(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
         break;
 
     case PPC_INST_FCTIWZ:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.s64 = ({}.f64 > double(INT_MAX)) ? INT_MAX : simde_mm_cvttsd_si32(simde_mm_load_sd(&{}.f64));", f(insn.operands[0]), f(insn.operands[1]), f(insn.operands[1]));
         break;
 
@@ -949,7 +2272,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_FMR:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.f64 = {}.f64;", f(insn.operands[0]), f(insn.operands[1]));
         break;
 
@@ -974,12 +2298,14 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_FNABS:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.u64 = {}.u64 | 0x8000000000000000;", f(insn.operands[0]), f(insn.operands[1]));
         break;
 
     case PPC_INST_FNEG:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         println("\t{}.u64 = {}.u64 ^ 0x8000000000000000;", f(insn.operands[0]), f(insn.operands[1]));
         break;
 
@@ -999,6 +2325,12 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_FRSQRTE:
+        if (config.exactEstimates)
+        {
+            // Integer table lookup: the FP mode doesn't matter.
+            println("\t{}.u64 = ppc_frsqrte({}.u64);", f(insn.operands[0]), f(insn.operands[1]));
+            break;
+        }
         printSetFlushMode(false);
         println("	{}.f64 = 1.0 / sqrt({}.f64);", f(insn.operands[0]), f(insn.operands[1]));
         break;
@@ -1087,7 +2419,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LFD:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         print("\t{}.u64 = PPC_LOAD_U64(", f(insn.operands[0]));
         if (insn.operands[2] != 0)
             print("{}.u32 + ", r(insn.operands[2]));
@@ -1095,7 +2428,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LFDX:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         print("\t{}.u64 = PPC_LOAD_U64(", f(insn.operands[0]));
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1156,12 +2490,14 @@ bool Recompiler::Recompile(
         println("\t{}.s64 = {};", r(insn.operands[0]), int32_t(insn.operands[1] << 16));
         break;
 
+    case PPC_INST_LVEBX:
     case PPC_INST_LVEHX:
     case PPC_INST_LVEWX:
     case PPC_INST_LVEWX128:
     case PPC_INST_LVX:
     case PPC_INST_LVXL:
     case PPC_INST_LVX128:
+    case PPC_INST_LVXL128:
         // NOTE: for endian swapping, we reverse the whole vector instead of individual elements.
         // this is accounted for in every instruction (eg. dp3 sums yzw instead of xyz)
         print("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*)(base + ((", v(insn.operands[0]));
@@ -1172,6 +2508,8 @@ bool Recompiler::Recompile(
 
     case PPC_INST_LVLX:
     case PPC_INST_LVLX128:
+    case PPC_INST_LVLXL:
+    case PPC_INST_LVLXL128:
         print("\t{}.u32 = ", temp());
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1181,6 +2519,8 @@ bool Recompiler::Recompile(
 
     case PPC_INST_LVRX:
     case PPC_INST_LVRX128:
+    case PPC_INST_LVRXL:
+    case PPC_INST_LVRXL128:
         print("\t{}.u32 = ", temp());
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1189,6 +2529,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LVSL:
+    case PPC_INST_LVSL128:
         print("\t{}.u32 = ", temp());
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1197,6 +2538,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LVSR:
+    case PPC_INST_LVSR128:
         print("\t{}.u32 = ", temp());
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1241,7 +2583,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LWSYNC:
-        // no op
+        println("\tPPC_LWSYNC();");
         break;
 
     case PPC_INST_LWZ:
@@ -1306,7 +2648,19 @@ bool Recompiler::Recompile(
     }
 
     case PPC_INST_MFTB:
-        println("\t{}.u64 = __rdtsc();", r(insn.operands[0]));
+        // mftb rD (TBR 268) reads the whole 64-bit timebase; the classic form can also name TBU (269).
+        if (insn.operands[1] == 269)
+            println("\t{}.u64 = PPC_MFTB() >> 32;", r(insn.operands[0]));
+        else
+            println("\t{}.u64 = PPC_MFTB();", r(insn.operands[0]));
+        break;
+
+    case PPC_INST_MFTBL:
+        println("\t{}.u64 = PPC_MFTB();", r(insn.operands[0]));
+        break;
+
+    case PPC_INST_MFTBU:
+        println("\t{}.u64 = PPC_MFTB() >> 32;", r(insn.operands[0]));
         break;
 
     case PPC_INST_MR:
@@ -1339,6 +2693,7 @@ bool Recompiler::Recompile(
             println("\tctx.lr = {}.u64;", r(insn.operands[0]));
         break;
 
+    case PPC_INST_MTMSR:
     case PPC_INST_MTMSRD:
         if (!config.skipMsr)
         {
@@ -1589,7 +2944,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_STFD:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         print("{}", mmioStore() ? "\tPPC_MM_STORE_U64(" : "\tPPC_STORE_U64(");
         if (insn.operands[2] != 0)
             print("{}.u32 + ", r(insn.operands[2]));
@@ -1597,7 +2953,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_STFDX:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         print("{}", mmioStore() ? "\tPPC_MM_STORE_U64(" : "\tPPC_STORE_U64(");
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1605,7 +2962,8 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_STFIWX:
-        printSetFlushMode(false);
+        // Mode-neutral: bit copies, sign-bit ops, exact int->double, truncations to integer. Neither
+        // flush-to-zero nor denormals-are-zero changes the result, so the FP mode isn't switched.
         print("{}", mmioStore() ? "\tPPC_MM_STORE_U32(" : "\tPPC_STORE_U32(");
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1674,6 +3032,8 @@ bool Recompiler::Recompile(
 
     case PPC_INST_STVLX:
     case PPC_INST_STVLX128:
+    case PPC_INST_STVLXL:
+    case PPC_INST_STVLXL128:
         // TODO: vectorize
         // NOTE: accounting for the full vector reversal here
         print("\t{} = ", ea());
@@ -1687,6 +3047,8 @@ bool Recompiler::Recompile(
 
     case PPC_INST_STVRX:
     case PPC_INST_STVRX128:
+    case PPC_INST_STVRXL:
+    case PPC_INST_STVRXL128:
         // TODO: vectorize
         // NOTE: accounting for the full vector reversal here
         print("\t{} = ", ea());
@@ -1701,6 +3063,7 @@ bool Recompiler::Recompile(
     case PPC_INST_STVX:
     case PPC_INST_STVXL:
     case PPC_INST_STVX128:
+    case PPC_INST_STVXL128:
         print("\tsimde_mm_store_si128((simde__m128i*)(base + ((");
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
@@ -1777,27 +3140,11 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_SYNC:
-        // no op
+        println("\tPPC_SYNC();");
         break;
 
-    case PPC_INST_TDLGEI:
-        // no op
-        break;
-
-    case PPC_INST_TDLLEI:
-        // no op
-        break;
-
-    case PPC_INST_TWI:
-        // no op
-        break;
-
-    case PPC_INST_TWLGEI:
-        // no op
-        break;
-
-    case PPC_INST_TWLLEI:
-        // no op
+    case PPC_INST_ISYNC:
+        println("\tPPC_ISYNC();");
         break;
 
     case PPC_INST_VADDFP:
@@ -1974,20 +3321,30 @@ bool Recompiler::Recompile(
         // TODO: vectorize
         printSetFlushMode(true);
         for (size_t i = 0; i < 4; i++)
-            println("\t{}.f32[{}] = log2f({}.f32[{}]);", v(insn.operands[0]), i, v(insn.operands[1]), i);
+            println("\t{}.f32[{}] = log2f(({}.u32[{}] & 0x7F800000) == 0 ? 0.0f : {}.f32[{}]);", v(insn.operands[0]), i, v(insn.operands[1]), i, v(insn.operands[1]), i);
         break;
 
     case PPC_INST_VMADDCFP128:
     case PPC_INST_VMADDFP:
     case PPC_INST_VMADDFP128:
         printSetFlushMode(true);
+        if (config.fusedMadd)
+        {
+            println("\tsimde_mm_store_ps({}.f32, simde_mm_fmadd_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]), v(insn.operands[3]));
+            break;
+        }
         println("\tsimde_mm_store_ps({}.f32, simde_mm_add_ps(simde_mm_mul_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)), simde_mm_load_ps({}.f32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]), v(insn.operands[3]));
         break;
 
     case PPC_INST_VMAXFP:
     case PPC_INST_VMAXFP128:
         printSetFlushMode(true);
-        println("\tsimde_mm_store_ps({}.f32, simde_mm_max_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+        // x86 returns the second operand for a NaN or for equal zeros. Both orders combined give the
+        // right zero sign; a NaN input gives that NaN quieted (vA's if both are NaN).
+        println("\t{{ simde__m128 a = simde_mm_load_ps({}.f32), b = simde_mm_load_ps({}.f32);", v(insn.operands[1]), v(insn.operands[2]));
+        println("\tsimde__m128 m = simde_mm_and_ps(simde_mm_max_ps(a, b), simde_mm_max_ps(b, a));");
+        println("\tsimde__m128 q = simde_mm_or_ps(simde_mm_blendv_ps(b, a, simde_mm_cmpunord_ps(a, a)), simde_mm_castsi128_ps(simde_mm_set1_epi32(0x00400000)));");
+        println("\tsimde_mm_store_ps({}.f32, simde_mm_blendv_ps(m, q, simde_mm_cmpunord_ps(a, b))); }}", v(insn.operands[0]));
         break;
 
     case PPC_INST_VMAXSW:
@@ -1997,7 +3354,12 @@ bool Recompiler::Recompile(
     case PPC_INST_VMINFP:
     case PPC_INST_VMINFP128:
         printSetFlushMode(true);
-        println("\tsimde_mm_store_ps({}.f32, simde_mm_min_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+        // x86 returns the second operand for a NaN or for equal zeros. Both orders combined give the
+        // right zero sign; a NaN input gives that NaN quieted (vA's if both are NaN).
+        println("\t{{ simde__m128 a = simde_mm_load_ps({}.f32), b = simde_mm_load_ps({}.f32);", v(insn.operands[1]), v(insn.operands[2]));
+        println("\tsimde__m128 m = simde_mm_or_ps(simde_mm_min_ps(a, b), simde_mm_min_ps(b, a));");
+        println("\tsimde__m128 q = simde_mm_or_ps(simde_mm_blendv_ps(b, a, simde_mm_cmpunord_ps(a, a)), simde_mm_castsi128_ps(simde_mm_set1_epi32(0x00400000)));");
+        println("\tsimde_mm_store_ps({}.f32, simde_mm_blendv_ps(m, q, simde_mm_cmpunord_ps(a, b))); }}", v(insn.operands[0]));
         break;
 
     case PPC_INST_VMRGHB:
@@ -2045,6 +3407,12 @@ bool Recompiler::Recompile(
     case PPC_INST_VNMSUBFP:
     case PPC_INST_VNMSUBFP128:
         printSetFlushMode(true);
+        if (config.fusedMadd)
+        {
+            // -(a*c - b), negated after the fused op so the zero sign matches.
+            println("\tsimde_mm_store_ps({}.f32, simde_mm_xor_ps(simde_mm_fmsub_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)), simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x80000000)))));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]), v(insn.operands[3]));
+            break;
+        }
         println("\tsimde_mm_store_ps({}.f32, simde_mm_xor_ps(simde_mm_sub_ps(simde_mm_mul_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)), simde_mm_load_ps({}.f32)), simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x80000000)))));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]), v(insn.operands[3]));
         break;
 
@@ -2085,6 +3453,81 @@ bool Recompiler::Recompile(
         // TODO: vectorize somehow?
         // NOTE: handling vector reversal here too
         printSetFlushMode(true);
+        // Only D3DCOLOR keeps its old dedicated code (it stages through temps, so vD == vB is safe).
+        // The old FLOAT16_2/FLOAT16_4 code wrote vD while still reading vB, which broke
+        // `vpkd3d128 v0,v0,5,2,2` (FM2 has 8) and type 3 with shift 2; they take the generic path.
+        if (!(insn.operands[2] == 0 && insn.operands[3] == 1))
+        {
+            // Generic form, after Xenia: pack vB into P (big-endian elements x,y,z,w), then each
+            // element of vD keeps its old value or takes one of P's, by (pack, shift).
+            const uint32_t type = insn.operands[2], pack = insn.operands[3], shift = insn.operands[4];
+            struct Select { uint8_t fromP, index; };
+            static constexpr Select pack1[4][4] = {
+                { {0,0}, {0,1}, {0,2}, {1,3} }, { {0,0}, {0,1}, {1,3}, {0,3} },
+                { {0,0}, {1,3}, {0,2}, {0,3} }, { {1,3}, {0,1}, {0,2}, {0,3} } };
+            static constexpr Select pack2[4][4] = {
+                { {0,0}, {0,1}, {1,2}, {1,3} }, { {0,0}, {1,2}, {1,3}, {0,3} },
+                { {1,2}, {1,3}, {0,2}, {0,3} }, { {1,3}, {0,1}, {0,2}, {0,3} } };
+            static constexpr Select pack3[4][4] = {
+                { {0,0}, {0,1}, {1,2}, {1,3} }, { {0,0}, {1,2}, {1,3}, {0,3} },
+                { {1,2}, {1,3}, {0,2}, {0,3} }, { {0,0}, {0,1}, {0,2}, {1,2} } };
+            const Select* selects = pack == 1 ? pack1[shift] : pack == 2 ? pack2[shift] : pack == 3 ? pack3[shift] : nullptr;
+            if (selects == nullptr || shift > 3 || type > 5)
+            {
+                println("\tPPC_UNIMPLEMENTED(0x{:X}, \"{} type {} pack {}\");", base, insn.opcode->name, type, pack);
+                problem("{:X} (in {:X}): {} type {} pack {} isn't implemented", base, fn.base, insn.opcode->name, type, pack);
+                break;
+            }
+
+            const auto b = v(insn.operands[1]);
+            auto element = [&](int k) { return fmt::format("{}.f32[{}]", b, 3 - k); }; // big-endian element k
+            auto clamp = [&](int k, uint32_t lo, uint32_t hi, uint32_t mask) { return fmt::format("(ppc_pack_clamp({}, 0x{:X}, 0x{:X}) & 0x{:X})", element(k), lo, hi, mask); };
+            auto half = [&](int k) { return fmt::format("uint32_t(ppc_float_to_xenos_half({}))", element(k)); };
+            std::string P[4] = { "0", "0", "0", "0" };
+            switch (type)
+            {
+            case 0: // D3DCOLOR: ARGB in w
+                P[3] = fmt::format("{} << 24 | {} << 16 | {} << 8 | {}", clamp(3, 0x40400000, 0x404000FF, 0xFF), clamp(0, 0x40400000, 0x404000FF, 0xFF), clamp(1, 0x40400000, 0x404000FF, 0xFF), clamp(2, 0x40400000, 0x404000FF, 0xFF));
+                break;
+            case 1: // NORMSHORT2: x:y in w
+                P[3] = fmt::format("{} << 16 | {}", clamp(0, 0x403F8001, 0x40407FFF, 0xFFFF), clamp(1, 0x403F8001, 0x40407FFF, 0xFFFF));
+                break;
+            case 2: // NORMPACKED32 2:10:10:10 (w:z:y:x), in every element
+            {
+                const auto packed = fmt::format("({} | {} << 10 | {} << 20 | {} << 30)", clamp(0, 0x403FFE01, 0x404001FF, 0x3FF), clamp(1, 0x403FFE01, 0x404001FF, 0x3FF), clamp(2, 0x403FFE01, 0x404001FF, 0x3FF), clamp(3, 0x40400000, 0x40400003, 0x3));
+                println("\t{}.u32 = {};", temp(), packed);
+                P[0] = P[1] = P[2] = P[3] = fmt::format("{}.u32", temp());
+                break;
+            }
+            case 3: // FLOAT16_2: x:y in w
+                P[3] = fmt::format("{} << 16 | {}", half(0), half(1));
+                break;
+            case 4: // NORMSHORT4: x:y in z, z:w in w
+                P[2] = fmt::format("{} << 16 | {}", clamp(0, 0x403F8001, 0x40407FFF, 0xFFFF), clamp(1, 0x403F8001, 0x40407FFF, 0xFFFF));
+                P[3] = fmt::format("{} << 16 | {}", clamp(2, 0x403F8001, 0x40407FFF, 0xFFFF), clamp(3, 0x403F8001, 0x40407FFF, 0xFFFF));
+                break;
+            case 5: // FLOAT16_4: x:y in z, z:w in w
+                P[2] = fmt::format("{} << 16 | {}", half(0), half(1));
+                P[3] = fmt::format("{} << 16 | {}", half(2), half(3));
+                break;
+            }
+
+            // P is built from vB before vD is written (they may be the same register).
+            for (int k = 0; k < 4; k++)
+            {
+                if (selects[k].fromP)
+                    println("\t{}.u32[{}] = {};", vTemp(), 3 - k, P[selects[k].index]);
+            }
+            for (int k = 0; k < 4; k++)
+            {
+                if (selects[k].fromP)
+                    println("\t{}.u32[{}] = {}.u32[{}];", v(insn.operands[0]), 3 - k, vTemp(), 3 - k);
+                else if (selects[k].index != k)
+                    println("\t{}.u32[{}] = {}.u32[{}];", v(insn.operands[0]), 3 - k, v(insn.operands[0]), 3 - selects[k].index);
+            }
+            break;
+        }
+
         switch (insn.operands[2])
         {
         case 0: // D3D color
@@ -2095,39 +3538,10 @@ bool Recompiler::Recompile(
             {
                 constexpr size_t indices[] = { 3, 0, 1, 2 };
                 println("\t{}.u32[{}] = 0x404000FF;", vTemp(), i);
-                println("\t{}.f32[{}] = {}.f32[{}] < 3.0f ? 3.0f : ({}.f32[{}] > {}.f32[{}] ? {}.f32[{}] : {}.f32[{}]);", vTemp(), i, v(insn.operands[1]), i, v(insn.operands[1]), i, vTemp(), i, vTemp(), i, v(insn.operands[1]), i);
+                println("\t{}.f32[{}] = !({}.f32[{}] > 3.0f) ? 3.0f : ({}.f32[{}] > {}.f32[{}] ? {}.f32[{}] : {}.f32[{}]);", vTemp(), i, v(insn.operands[1]), i, v(insn.operands[1]), i, vTemp(), i, vTemp(), i, v(insn.operands[1]), i);
                 println("\t{}.u32 {}= uint32_t({}.u8[{}]) << {};", temp(), i == 0 ? "" : "|", vTemp(), i * 4, indices[i] * 8);
             }
             println("\t{}.u32[{}] = {}.u32;", v(insn.operands[0]), insn.operands[4], temp());
-            break;
-
-        case 3: // float16_2 into one word (word index = 3 - shift, reversed)
-            if (insn.operands[3] != 1)
-                fmt::println("Unexpected float16_2 pack instruction at {:X}", base);
-            println("\t{}.u16[{}] = ppc_float_to_half({}.f32[3]);", v(insn.operands[0]), 2 * insn.operands[4] + 1, v(insn.operands[1]));
-            println("\t{}.u16[{}] = ppc_float_to_half({}.f32[2]);", v(insn.operands[0]), 2 * insn.operands[4], v(insn.operands[1]));
-            break;
-
-        case 5: // float16_4
-            if (insn.operands[3] != 2 || insn.operands[4] > 2)
-                fmt::println("Unexpected float16_4 pack instruction at {:X}", base);
-
-            for (size_t i = 0; i < 4; i++)
-            {
-        		// Strip sign from source
-        		println("\t{}.u32 = ({}.u32[{}]&0x7FFFFFFF);", temp(), v(insn.operands[1]), i);
-        		// If |source| is > 65504, clamp output to 0x7FFF, else save 8 exponent bits 
-        		println("\t{0}.u8[0] = ({1}.f32 != {1}.f32) || ({1}.f32 > 65504.0f) ? 0xFF : (({2}.u32[{3}]&0x7f800000)>>23);", vTemp(), temp(), v(insn.operands[1]), i);
-        		// If 8 exponent bits were saved, it can only be 0x8E at most
-        		// If saved, save first 10 bits of mantissa
-        		println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}.u32[{}]&0x7FE000)>>13) : 0x0;", temp(), vTemp(), v(insn.operands[1]), i);
-        		// If saved and > 127-15, exponent is converted from 8 to 5-bit by subtracting 0x70
-        		// If saved but not > 127-15, clamp exponent at 0, add 0x400 to mantissa and shift right by (0x71-exponent)
-        		// If right shift is greater than 31 bits, manually clamp mantissa to 0 or else the output of the shift will be wrong
-        		println("\t{0}.u16[{1}] = {2}.u8[0] != 0xFF ? ({2}.u8[0] > 0x70 ? ((({2}.u8[0]-0x70)<<10)+{3}.u16) : (0x71-{2}.u8[0] > 31 ? 0x0 : ((0x400+{3}.u16)>>(0x71-{2}.u8[0])))) : 0x7FFF;", v(insn.operands[0]), i+(2*insn.operands[4]), vTemp(), temp());
-        		// Add back original sign
-        		println("\t{}.u16[{}] |= (({}.u32[{}]&0x80000000)>>16);", v(insn.operands[0]), i+(2*insn.operands[4]), v(insn.operands[1]), i);
-            }
             break;
 
         default:
@@ -2176,6 +3590,13 @@ bool Recompiler::Recompile(
 
     case PPC_INST_VRSQRTEFP:
     case PPC_INST_VRSQRTEFP128:
+        if (config.exactEstimates)
+        {
+            // Integer table lookup per element; vD may be vB, so each element reads before it writes.
+            for (size_t i = 0; i < 4; i++)
+                println("\t{}.u32[{}] = ppc_vrsqrtefp({}.u32[{}]);", v(insn.operands[0]), i, v(insn.operands[1]), i);
+            break;
+        }
         // TODO: see if we can use rsqrt safely
         // TODO: we can detect if the input is from a dot product and apply logic only on one value
         printSetFlushMode(true);
@@ -2267,6 +3688,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_VPKSWSS:
+    case PPC_INST_VPKSWSS128:
         println("	simde_mm_store_si128((simde__m128i*){}.s16, simde_mm_packs_epi32(simde_mm_load_si128((simde__m128i*){}.s32), simde_mm_load_si128((simde__m128i*){}.s32)));", v(insn.operands[0]), v(insn.operands[2]), v(insn.operands[1]));
         break;
 
@@ -2283,9 +3705,11 @@ bool Recompiler::Recompile(
 
     case PPC_INST_VSL:
     case PPC_INST_VSLO:
+    case PPC_INST_VSLO128:
     case PPC_INST_VSRO:
+    case PPC_INST_VSRO128:
     {
-        const bool left = insn.opcode->id != PPC_INST_VSRO;
+        const bool left = insn.opcode->id != PPC_INST_VSRO && insn.opcode->id != PPC_INST_VSRO128;
         const char* count = insn.opcode->id == PPC_INST_VSL ? "& 0x7" : "& 0x78";
         println("	{{ unsigned __int128 x; __builtin_memcpy(&x, {}.u8, 16); x {}= ({}.u8[0] {}); __builtin_memcpy({}.u8, &x, 16); }}",
             v(insn.operands[1]), left ? "<<" : ">>", v(insn.operands[2]), count, v(insn.operands[0]));
@@ -2462,22 +3886,79 @@ bool Recompiler::Recompile(
         break;
 
     default:
+        // Branch and trap aliases are decoded from their fields.
+        if (printGenericBranch() || printGenericTrap())
+            break;
         return false;
     }
 
-#if 1
-    if (strchr(insn.opcode->name, '.'))
+    // Record forms (name ends in '.'). An integer op sets cr0 from its 32-bit result; cases that
+    // don't do it themselves get it here. Floating-point ones set cr1 from FPSCR[FX,FEX,VX,OX],
+    // which isn't modelled: no exception bits are ever set, so cr1 is cleared. Vector compares set cr6.
+    if (strchr(insn.opcode->name, '.') && out.find("cr0", outStart) == std::string::npos &&
+        out.find("cr1", outStart) == std::string::npos && out.find("cr6", outStart) == std::string::npos)
     {
-        int lastLine = out.find_last_of('\n', out.size() - 2);
-        if (out.find("cr0", lastLine + 1) == std::string::npos && out.find("cr6", lastLine + 1) == std::string::npos)
-            fmt::println("{} at {:X} has RC bit enabled but no comparison was generated", insn.opcode->name, base);
+        const uint32_t primary = insn.instruction >> 26;
+        if (primary == 59 || primary == 63)
+        {
+            println("\t{}.lt = 0;", cr(1));
+            println("\t{}.gt = 0;", cr(1));
+            println("\t{}.eq = 0;", cr(1));
+            println("\t{}.so = 0;", cr(1));
+        }
+        else if (primary != 4)
+        {
+            println("\t{}.compare<int32_t>({}.s32, 0, {});", cr(0), r(insn.operands[0]), xer());
+        }
+        else
+        {
+            // Vector compare: every element of vD is all ones or all zeros.
+            println("\t{}.setFromMask(simde_mm_load_si128((simde__m128i*){}.u8), 0xFFFF);", cr(6), v(insn.operands[0]));
+        }
     }
-#endif
 
     if (midAsmHook != config.midAsmHooks.end() && midAsmHook->second.afterInstruction)
         printMidAsmHook();
     
     return true;
+}
+
+// A bctr whose target was loaded from a table of code addresses inside this function: within the
+// few instructions before it, lis + addi (the table address) and the mtctr, and the table's first
+// word points into the function. (A table of function pointers is a tail call, not a switch.) Also
+// the two padding words the original check knew about. Catches switch tables that neither the file
+// nor the patterns cover.
+static bool LooksLikeJumpTable(const Image& image, const Function& fn, const uint32_t* data, size_t base)
+{
+    const uint32_t prev = *(data - 1);
+    if (prev == 0x07008038 || prev == 0x00000060)
+        return true;
+
+    bool mtctr = false;
+    int64_t hi = -1, lo = 0;
+    uint32_t tableReg = 0;
+    const size_t count = std::min<size_t>(8, (base - fn.base) / 4);
+    for (size_t i = count; i >= 1; i--)
+    {
+        const uint32_t word = ByteSwap(*(data - i));
+        const uint32_t rd = (word >> 21) & 0x1F, ra = (word >> 16) & 0x1F;
+        if ((word >> 26) == 15 && ra == 0) { hi = int64_t(int32_t(word << 16)); lo = 0; tableReg = rd; } // lis
+        else if ((word >> 26) == 14 && hi != -1 && ra == tableReg && rd == tableReg) lo = int16_t(word & 0xFFFF); // addi
+        if ((word & 0xFC1FFFFF) == 0x7C0903A6) mtctr = true; // mtspr ctr,rS
+    }
+    if (!mtctr || hi == -1)
+        return false;
+
+    const uint32_t table = uint32_t(hi + lo);
+    for (const auto& section : image.sections)
+    {
+        if (section.data != nullptr && table >= section.base && table + 4 <= section.base + section.size)
+        {
+            const uint32_t first = ByteSwap(*(const uint32_t*)(section.data + (table - section.base)));
+            return first >= fn.base && first < fn.base + fn.size;
+        }
+    }
+    return false;
 }
 
 bool Recompiler::Recompile(const Function& fn)
@@ -2618,16 +4099,16 @@ bool Recompiler::Recompile(const Function& fn)
 #if 1
             if (*data != 0)
             {
-                println("\tPPC_UNIMPLEMENTED(0x{:X}, \"undecodable 0x{:08X}\");", base, *data);
-                problem("{:X} (in {:X}): can't decode instruction word {:08X}", base, fn.base, *data);
+                println("\tPPC_UNIMPLEMENTED(0x{:X}, \"undecodable 0x{:08X}\");", base, ByteSwap(*data));
+                problem("{:X} (in {:X}): can't decode instruction word {:08X}", base, fn.base, ByteSwap(*data));
                 allRecompiled = false;
             }
 #endif
         }
         else
         {
-            if (insn.opcode->id == PPC_INST_BCTR && (*(data - 1) == 0x07008038 || *(data - 1) == 0x00000060) && switchTable == config.switchTables.end())
-                fmt::println("Found a switch jump table at {:X} with no switch table entry present", base);
+            if (insn.opcode->id == PPC_INST_BCTR && switchTable == config.switchTables.end() && LooksLikeJumpTable(image, fn, data, base))
+                problem("{:X} (in {:X}): looks like a switch jump table with no switch table entry", base, fn.base);
 
             if (!Recompile(fn, base, insn, data, switchTable, localVariables, csrState))
             {
@@ -2641,10 +4122,44 @@ bool Recompiler::Recompile(const Function& fn)
         ++data;
     }
 
-#if 0
-    if (insn.opcode == nullptr || (insn.opcode->id != PPC_INST_B && insn.opcode->id != PPC_INST_BCTR && insn.opcode->id != PPC_INST_BLR))
-        fmt::println("Function at {:X} ends prematurely with instruction {} at {:X}", fn.base, insn.opcode != nullptr ? insn.opcode->name : "INVALID", base - 4);
-#endif
+    // A function whose last instruction can fall through runs on into the code after it, which on
+    // the console is the next function: that's a tail call. (memset's 1-3 byte tail is the known
+    // case: generated as is, the function returned early.) With no function there, it's a problem.
+    if (fn.size != 0)
+    {
+        const uint32_t last = ByteSwap(*(data - 1));
+        bool fallsThrough = true;
+        if (PPC_OP(last) == PPC_OP_B && !PPC_BL(last))
+            fallsThrough = false; // b
+        else if (PPC_OP(last) == PPC_OP_CTR && !PPC_BL(last) && (PPC_BO(last) & 0x14) == 0x14 && (PPC_XOP(last) == 16 || PPC_XOP(last) == 528))
+            fallsThrough = false; // blr, bctr
+        else if (last == 0 || (last >> 26) == 3 && ((last >> 21) & 0x1F) == 31)
+            fallsThrough = false; // padding, twi 31 (always traps)
+        else if ((last >> 26) == 31 && ((last >> 1) & 0x3FF) == 4 && ((last >> 21) & 0x1F) == 31)
+            fallsThrough = false; // tw 31
+        else if (PPC_BL(last) && (PPC_OP(last) == PPC_OP_B ||
+            ((PPC_OP(last) == PPC_OP_BC || PPC_OP(last) == PPC_OP_CTR) && (PPC_BO(last) & 0x14) == 0x14)))
+            fallsThrough = false; // ends in an unconditional call: to a routine that doesn't return (an assert,
+                                  // KeBugCheck). If a port's hook of it returns, returning here is safer than
+                                  // running on. A conditional call's not-taken path does run on, as a tail call.
+
+        if (fallsThrough)
+        {
+            auto next = image.symbols.find(end);
+            if (next != image.symbols.end() && next->address == end && next->type == Symbol_Function)
+            {
+                println("\t// falls through into {}", next->name);
+                println("\t{}(ctx, base);", next->name);
+                println("\treturn;");
+                ++fallThroughs;
+            }
+            else
+            {
+                println("\tPPC_UNRESOLVED_BRANCH(0x{:X}, 0x{:X});", base - 4, end);
+                problem("{:X} (in {:X}): the function runs off its end at {:X}, and no function starts there", base - 4, fn.base, end);
+            }
+        }
+    }
 
     println("}}\n");
 
@@ -2724,7 +4239,9 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
         if (config.skipMsr)
             println("#define PPC_CONFIG_SKIP_MSR");      
         if (config.crRegistersAsLocalVariables)
-            println("#define PPC_CONFIG_CR_AS_LOCAL");      
+            println("#define PPC_CONFIG_CR_AS_LOCAL");
+        if (config.hardwareFences)
+            println("#define PPC_CONFIG_HARDWARE_FENCES");
         if (config.nonArgumentRegistersAsLocalVariables)
             println("#define PPC_CONFIG_NON_ARGUMENT_AS_LOCAL");   
         if (config.nonVolatileRegistersAsLocalVariables)
@@ -2753,6 +4270,26 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
 
         println("#define PPC_CODE_BASE 0x{:X}ull", codeMin);
         println("#define PPC_CODE_SIZE 0x{:X}ull", codeMax - codeMin);
+
+        // PPC_LOOKUP_FUNC(base, y) is base + y * 2 + (table - 2 * PPC_CODE_BASE). x64 folds that into a
+        // single [base + y*2 + disp32] when the constant fits in 32 bits; otherwise every indirect call
+        // and its table load need an extra 64-bit constant. With code at 0x82xxxxxx the table must sit
+        // at or above 2 * PPC_CODE_BASE - 2^31 for that.
+        const uint64_t tableBase = config.functionTableAddress != 0 ? config.functionTableAddress : uint64_t(image.base) + image.size;
+        const int64_t displacement = int64_t(tableBase) - 2 * int64_t(codeMin);
+        if (config.functionTableAddress != 0)
+            println("#define PPC_FUNC_TABLE_BASE 0x{:X}ull", tableBase);
+        if (displacement < INT32_MIN || displacement > INT32_MAX)
+        {
+            const uint64_t lowest = (2 * uint64_t(codeMin) - 0x80000000ull + 0xFFFF) & ~0xFFFFull;
+            const uint64_t highest = std::min<uint64_t>(2 * uint64_t(codeMin) + 0x7FFFFFFFull, 0x100000000ull - 2 * uint64_t(codeMax - codeMin)) & ~0xFFFFull;
+            fmt::println("Note: the indirect-call table at 0x{:X} is too far for a 32-bit displacement; a function_table_address from 0x{:X} to 0x{:X} (where the port has 0x{:X} free bytes) lets every indirect call use one",
+                tableBase, lowest, highest, 2 * uint64_t(codeMax - codeMin));
+        }
+        if (tableBase + 2 * uint64_t(codeMax - codeMin) > 0x100000000ull)
+        {
+            problem("the indirect-call table (0x{:X}, 0x{:X} bytes) runs past the 4 GB guest space", tableBase, 2 * (codeMax - codeMin));
+        }
 
         println("");
 
@@ -2805,21 +4342,60 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
         SaveCurrentOutData("ppc_func_mapping.cpp");
     }
 
-    for (size_t i = 0; i < functions.size(); i++)
+    if (config.elideEmptyFunctions)
     {
-        if ((i % 256) == 0)
+        for (auto& fn : functions)
         {
-            SaveCurrentOutData();
-            println("#include \"ppc_recomp_shared.h\"\n");
+            auto* data = (const uint32_t*)image.Find(fn.base);
+            if (fn.size == 4 && data != nullptr && ByteSwap(*data) == 0x4E800020 && !config.keepFunctions.count(fn.base) &&
+                !config.midAsmHooks.count(fn.base))
+            {
+                emptyFunctions.emplace(fn.base);
+            }
         }
 
-        if ((i % 2048) == 0 || (i == (functions.size() - 1)))
-            fmt::println("Recompiling functions... {}%", static_cast<float>(i + 1) / functions.size() * 100.0f);
-
-        Recompile(functions[i]);
+        std::vector<size_t> sorted(emptyFunctions.begin(), emptyFunctions.end());
+        std::sort(sorted.begin(), sorted.end());
+        println("# Functions that are only blr; calls to them are left out of the recompiled code.");
+        println("# A port that hooks one of these must add it to keep_functions in its config.");
+        for (size_t address : sorted)
+            println("{:X}", address);
+        SaveCurrentOutData("ppc_elided_functions.txt");
+        fmt::println("Eliding calls to {} empty functions", sorted.size());
     }
 
-    SaveCurrentOutData();
+    if (config.chunkByAddress != 0)
+    {
+        RecompileChunkedByAddress();
+    }
+    else
+    {
+        const size_t firstFileIndex = cppFileIndex;
+        for (size_t i = 0; i < functions.size(); i++)
+        {
+            if ((i % 256) == 0)
+            {
+                SaveCurrentOutData();
+                println("#include \"ppc_recomp_shared.h\"\n");
+            }
+
+            if ((i % 2048) == 0 || (i == (functions.size() - 1)))
+                fmt::println("Recompiling functions... {}%", static_cast<float>(i + 1) / functions.size() * 100.0f);
+
+            Recompile(functions[i]);
+        }
+
+        SaveCurrentOutData();
+
+        std::set<std::string> written;
+        for (size_t i = firstFileIndex; i < cppFileIndex; i++)
+            written.insert(fmt::format("ppc_recomp.{}.cpp", i));
+        if (const size_t removed = RemoveStaleChunkFiles(written))
+            fmt::println("Removed {} stale chunk file(s)", removed);
+    }
+
+    if (fallThroughs != 0)
+        fmt::println("{} function(s) fall through into the next one (emitted as tail calls)", fallThroughs);
 
     if (!problems.empty())
     {
@@ -2833,6 +4409,103 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
         }
     }
     return true;
+}
+
+void Recompiler::RecompileChunkedByAddress()
+{
+    size_t codeStart = SIZE_MAX;
+    for (const auto& section : image.sections)
+    {
+        if (section.flags & SectionFlags_Code)
+            codeStart = (std::min)(codeStart, size_t(section.base));
+    }
+
+    // functions is sorted by address, so each chunk is a contiguous run.
+    std::map<size_t, std::vector<size_t>> chunks;
+    for (size_t i = 0; i < functions.size(); i++)
+        chunks[(functions[i].base - codeStart) / config.chunkByAddress].push_back(i);
+
+    std::unordered_set<std::string_view> names;
+    for (const auto& symbol : image.symbols)
+        names.insert(symbol.name);
+
+    auto isIdentifierStart = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+    auto isIdentifier = [&](char c) { return isIdentifierStart(c) || (c >= '0' && c <= '9'); };
+
+    std::set<std::string> written;
+    size_t done = 0, nextReport = 0;
+    for (const auto& [index, members] : chunks)
+    {
+        for (size_t i : members)
+        {
+            Recompile(functions[i]);
+            if (++done >= nextReport || done == functions.size())
+            {
+                fmt::println("Recompiling functions... {}%", static_cast<float>(done) / functions.size() * 100.0f);
+                nextReport = done + 2048;
+            }
+        }
+
+        // Declare every function this chunk names (calls, tail calls, its own definitions).
+        std::set<std::string_view> referenced;
+        const std::string body = std::move(out);
+        out.clear();
+        for (size_t p = 0; p < body.size(); )
+        {
+            if (!isIdentifierStart(body[p]) || (p != 0 && isIdentifier(body[p - 1])))
+            {
+                ++p;
+                continue;
+            }
+            size_t e = p;
+            while (e < body.size() && isIdentifier(body[e]))
+                ++e;
+            auto name = names.find(std::string_view(body).substr(p, e - p));
+            if (name != names.end())
+                referenced.insert(*name);
+            p = e;
+        }
+
+        println("#include \"ppc_config.h\"");
+        println("#include \"ppc_context.h\"\n");
+        for (auto name : referenced)
+            println("PPC_EXTERN_FUNC({});", name);
+        println("");
+        out += body;
+
+        const std::string fileName = fmt::format("ppc_recomp.{}.cpp", index);
+        SaveCurrentOutData(fileName);
+        written.insert(fileName);
+    }
+
+    const size_t removed = RemoveStaleChunkFiles(written);
+    fmt::println("{} chunk file(s) by address (0x{:X} bytes of guest code each){}", chunks.size(), config.chunkByAddress,
+        removed != 0 ? fmt::format("; removed {} stale chunk file(s)", removed) : "");
+}
+
+// Removes ppc_recomp.<digits>.cpp files this run didn't write (left by the other layout or by a
+// bigger chunk count): a port that globs ppc_recomp.*.cpp would otherwise build them and get
+// duplicate functions. Nothing else in the output folder is touched.
+size_t Recompiler::RemoveStaleChunkFiles(const std::set<std::string>& written)
+{
+    std::string directoryPath = config.directoryPath;
+    if (!directoryPath.empty())
+        directoryPath += "/";
+    const std::filesystem::path outDirectory = directoryPath + config.outDirectoryPath;
+    size_t removed = 0;
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(outDirectory, ec))
+    {
+        const std::string fileName = entry.path().filename().string();
+        if (fileName.size() > 15 && fileName.compare(0, 11, "ppc_recomp.") == 0 && fileName.compare(fileName.size() - 4, 4, ".cpp") == 0 &&
+            std::all_of(fileName.begin() + 11, fileName.end() - 4, [](char c) { return c >= '0' && c <= '9'; }) &&
+            !written.count(fileName))
+        {
+            std::filesystem::remove(entry.path(), ec);
+            ++removed;
+        }
+    }
+    return removed;
 }
 
 void Recompiler::SaveCurrentOutData(const std::string_view& name)

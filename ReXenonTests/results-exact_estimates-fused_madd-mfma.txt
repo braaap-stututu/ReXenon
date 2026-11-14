@@ -1,0 +1,538 @@
+ReXenon instruction tests (Xenia's src/xenia/cpu/ppc/testing, instr_*.s)
+Generated 2026-11-14 02:31 in 65 s. Rerun: py -I D:\ReXenon\ReXenonTests\run.py
+
+status                all       hand       _GEN
+pass               144192       2776     141416
+fail                26255         35      26220
+unimplemented           1          1          0
+compile-failed          0          0          0
+encoder-failed          0          0          0
+skipped                 0          0          0
+total              170448       2812     167636
+
+Encoder: 343842 instruction lines (1360 distinct); 343842 assembled (1 with a range warning);
+  round-trip through ppc::Disassemble: 343842/343842 (100.00%): 343381 same mnemonic and operands, 461 via an alias (disassembles to another spelling that assembles back to the same word); 1360/1360 distinct lines.
+  plus 9 raw .long words. Details: D:\ReXenon\build-tests\rxt-exact_estimates-fused_madd-mfma\encoder.txt
+  170448 tests share 1791 distinct recompiled functions (identical code is recompiled once).
+
+Instructions with failures (44 of 446 instructions; failing/total tests).
+For value mismatches, [..] says what the test data involves: cr-only (only CR differs),
+NaN or denormal (a NaN/denormal among the test's register values), ordinary (neither).
+  vnmsubfp        11520/15605  fail 11520 [NaN 11520]
+  fnmsubs          2230/3456   fail 2230 [NaN 2048, cr-only 182]
+  fnmadds          2228/3456   fail 2228 [NaN 2048, cr-only 180]
+  fnmsub           1716/3456   fail 1716 [NaN 1456, cr-only 260]
+  fnmadd           1715/3456   fail 1715 [NaN 1456, cr-only 259]
+  fmsubs           1307/3456   fail 1307 [NaN 848, cr-only 459]
+  fmadds           1305/3460   fail 1305 [NaN 848, cr-only 457]
+  vmaddfp          1012/15603  fail 1012 [NaN 1012]
+  fmsub             793/3456   fail 793 [cr-only 537, NaN 256]
+  fmadd             792/3460   fail 792 [cr-only 536, NaN 256]
+  vsr               454/654    fail 454 [NaN 292, denormal 123, ordinary 39]
+  vsl               422/654    fail 422 [NaN 271, denormal 105, ordinary 46]
+  fmuls             102/288    fail 102 [NaN 72, cr-only 30]
+  fsubs              95/288    fail 95 [NaN 60, cr-only 35]
+  fadds              94/288    fail 94 [NaN 60, cr-only 34]
+  fdivs              85/288    fail 85 [cr-only 49, denormal 20, NaN 16]
+  fdiv               67/288    fail 67 [cr-only 51, NaN 16]
+  vaddfp             48/651    fail 48 [NaN 48]
+  fmul               46/291    fail 46 [cr-only 30, NaN 16]
+  fadd               43/291    fail 43 [cr-only 39, NaN 4]
+  fsub               43/288    fail 43 [cr-only 39, NaN 4]
+  vrefp              22/31     fail 22 [ordinary 15, NaN 4, denormal 3]
+  vlogefp            20/31     fail 20 [NaN 12, ordinary 7, denormal 1]
+  fsqrts             12/24     fail 12 [NaN 6, denormal 4, cr-only 2]
+  fres               11/24     fail 11 [ordinary 6, cr-only 5]
+  fsqrt               9/27     fail 9 [NaN 6, cr-only 3]
+  fctid               6/24     fail 6 [cr-only 6]
+  fctidz              6/24     fail 6 [cr-only 6]
+  fctiw               6/24     fail 6 [cr-only 6]
+  fctiwz              6/24     fail 6 [cr-only 6]
+  frsqrte             6/27     fail 6 [cr-only 6]
+  mtfsb               5/5      fail 5 [NaN 5]
+  vrefp128            5/5      fail 5 [ordinary 5]
+  fresx               4/4      fail 4 [ordinary 4]
+  frsp                4/24     fail 4 [cr-only 4]
+  mffsx               4/4      fail 4 [NaN 4]
+  mfmsr               2/2      fail 2 [ordinary 2]
+  stwcx               2/4      fail 2 [ordinary 2]
+  vexptefp            2/27     fail 2 [ordinary 2]
+  vmsum3fp128         2/3      fail 2 [ordinary 2]
+  vmsum4fp128         2/3      fail 2 [ordinary 2]
+  lvx_permute         1/7      unimplemented 1
+  vexptefp128         1/5      fail 1 [ordinary 1]
+  vlogefp128          1/5      fail 1 [ordinary 1]
+
+Failures by instruction (each group: signature, count, examples; every test in results_all.tsv):
+
+== vnmsubfp: 11520 of 15605 failing
+  [fail] mismatch in v4: 11520
+      instr__gen_vnmsubfp:vnmsubfp_1_GEN  v4 expected [80000000, FFFF0000, 80000000, FFFF0000] actual [80000000, 7FFF0000, 80000000, 7FFF0000]
+      instr__gen_vnmsubfp:vnmsubfp_5_GEN  v4 expected [00FFFF00, 80000000, FF0000FF, FFFF00FF] actual [00FFFF00, 80000000, FF0000FF, 7FFF00FF]
+      instr__gen_vnmsubfp:vnmsubfp_13_GEN  v4 expected [7FC00203, 04050607, 7FC00A0B, 0C0D0E0F] actual [FFC00203, 04050607, FFC00A0B, 0C0D0E0F]
+      ... 11517 more
+
+== fnmsubs: 2230 of 3456 failing
+  [fail] mismatch in f4: 1643
+      instr__gen_fnmsubs:fnmsubs_3_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fnmsubs:fnmsubs_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fnmsubs:fnmsubs_4_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 1640 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmsubs:fnmsubs_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 182
+      instr__gen_fnmsubs:fnmsubs_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_56_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 179 more
+
+== fnmadds: 2228 of 3456 failing
+  [fail] mismatch in f4: 1643
+      instr__gen_fnmadds:fnmadds_3_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fnmadds:fnmadds_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fnmadds:fnmadds_4_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      ... 1640 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmadds:fnmadds_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 180
+      instr__gen_fnmadds:fnmadds_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_56_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 177 more
+
+== fnmsub: 1716 of 3456 failing
+  [fail] mismatch in f4: 1051
+      instr__gen_fnmsub:fnmsub_11_GEN  f4 expected 0xFFF8000000000000 actual 0x7FF8000000000000
+      instr__gen_fnmsub:fnmsub_11_cr_GEN  f4 expected 0xFFF8000000000000 actual 0x7FF8000000000000
+      instr__gen_fnmsub:fnmsub_12_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000
+      ... 1048 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmsub:fnmsub_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 260
+      instr__gen_fnmsub:fnmsub_97_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_98_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_99_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 257 more
+
+== fnmadd: 1715 of 3456 failing
+  [fail] mismatch in f4: 1051
+      instr__gen_fnmadd:fnmadd_11_GEN  f4 expected 0xFFF8000000000000 actual 0x7FF8000000000000
+      instr__gen_fnmadd:fnmadd_11_cr_GEN  f4 expected 0xFFF8000000000000 actual 0x7FF8000000000000
+      instr__gen_fnmadd:fnmadd_12_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000
+      ... 1048 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmadd:fnmadd_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadd:fnmadd_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadd:fnmadd_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 259
+      instr__gen_fnmadd:fnmadd_97_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadd:fnmadd_98_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadd:fnmadd_99_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 256 more
+
+== fmsubs: 1307 of 3456 failing
+  [fail] mismatch in f4: 720
+      instr__gen_fmsubs:fmsubs_3_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fmsubs:fmsubs_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fmsubs:fmsubs_4_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      ... 717 more
+  [fail] mismatch in cr: 459
+      instr__gen_fmsubs:fmsubs_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 456 more
+  [fail] mismatch in cr,f4: 128
+      instr__gen_fmsubs:fmsubs_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 125 more
+
+== fmadds: 1305 of 3460 failing
+  [fail] mismatch in f4: 720
+      instr__gen_fmadds:fmadds_3_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmadds:fmadds_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmadds:fmadds_4_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 717 more
+  [fail] mismatch in cr: 457
+      instr__gen_fmadds:fmadds_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 454 more
+  [fail] mismatch in cr,f4: 128
+      instr__gen_fmadds:fmadds_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 125 more
+
+== vmaddfp: 1012 of 15603 failing
+  [fail] mismatch in v4: 1012
+      instr__gen_vmaddfp:vmaddfp_29_GEN  v4 expected [00FFFF00, FFFF0000, FF0000FF, FFFF00FF] actual [00FFFF00, FFFF0000, FF0000FF, FFFF0000]
+      instr__gen_vmaddfp:vmaddfp_44_GEN  v4 expected [FFFCFFFD, FFFEFFFF, 00000000, FFFF0000] actual [FFFCFFFD, FFFF0000, 00000000, FFFF0000]
+      instr__gen_vmaddfp:vmaddfp_48_GEN  v4 expected [FFFFFFFF, FFFFFFFF, FFFFFFFF, FFFFFFFF] actual [FFFFFFFF, FFFF0000, FFFFFFFF, FFFF0000]
+      ... 1009 more
+
+== fmsub: 793 of 3456 failing
+  [fail] mismatch in cr: 537
+      instr__gen_fmsub:fmsub_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_36_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 534 more
+  [fail] mismatch in f4: 128
+      instr__gen_fmsub:fmsub_97_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmsub:fmsub_98_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmsub:fmsub_99_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 125 more
+  [fail] mismatch in cr,f4: 128
+      instr__gen_fmsub:fmsub_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 125 more
+
+== fmadd: 792 of 3460 failing
+  [fail] mismatch in cr: 536
+      instr__gen_fmadd:fmadd_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_36_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 533 more
+  [fail] mismatch in f4: 128
+      instr__gen_fmadd:fmadd_97_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmadd:fmadd_98_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmadd:fmadd_99_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 125 more
+  [fail] mismatch in cr,f4: 128
+      instr__gen_fmadd:fmadd_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 125 more
+
+== vsr: 454 of 654 failing
+  [fail] mismatch in v3: 454
+      instr__gen_vsr:vsr_27_GEN  v3 expected [00000000, 02000001, 00000001, 02000001] actual [00000001, 00000001, 00000001, 00000001]
+      instr__gen_vsr:vsr_28_GEN  v3 expected [00000000, 10000000, 00000000, 10000000] actual [00000000, 02000000, 02000000, 02000000]
+      instr__gen_vsr:vsr_29_GEN  v3 expected [00000000, 00000000, 00000000, 00000000] actual [00000000, 08000000, 08000000, 08000000]
+      ... 451 more
+
+== vsl: 422 of 654 failing
+  [fail] mismatch in v3: 422
+      instr__gen_vsl:vsl_27_GEN  v3 expected [00000080, 00000001, 00000001, 00000001] actual [00000001, 00000001, 00000001, 00000001]
+      instr__gen_vsl:vsl_28_GEN  v3 expected [00000008, 00000080, 00000008, 00000080] actual [00000080, 00000080, 00000080, 00000080]
+      instr__gen_vsl:vsl_30_GEN  v3 expected [00000008, 00000080, 00000008, 00000080] actual [00000080, 00000080, 00000080, 00000080]
+      ... 419 more
+
+== fmuls: 102 of 288 failing
+  [fail] mismatch in f3: 64
+      instr__gen_fmuls:fmuls_3_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmuls:fmuls_3_cr_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmuls:fmuls_4_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 61 more
+  [fail] mismatch in cr: 30
+      instr__gen_fmuls:fmuls_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_36_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 27 more
+  [fail] mismatch in cr,f3: 8
+      instr__gen_fmuls:fmuls_9_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_10_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_21_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 5 more
+
+== fsubs: 95 of 288 failing
+  [fail] mismatch in f3: 58
+      instr__gen_fsubs:fsubs_3_GEN  f3 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fsubs:fsubs_3_cr_GEN  f3 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fsubs:fsubs_4_GEN  f3 expected 0x7FF8000000000000 actual 0x8000000000000000
+      ... 55 more
+  [fail] mismatch in cr: 35
+      instr__gen_fsubs:fsubs_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsubs:fsubs_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsubs:fsubs_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 32 more
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fsubs:fsubs_105_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsubs:fsubs_118_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fadds: 94 of 288 failing
+  [fail] mismatch in f3: 58
+      instr__gen_fadds:fadds_3_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fadds:fadds_3_cr_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fadds:fadds_4_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 55 more
+  [fail] mismatch in cr: 34
+      instr__gen_fadds:fadds_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fadds:fadds_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadds:fadds_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 31 more
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fadds:fadds_106_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadds:fadds_117_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fdivs: 85 of 288 failing
+  [fail] mismatch in cr: 49
+      instr__gen_fdivs:fdivs_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_25_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 46 more
+  [fail] mismatch in f3: 23
+      instr__gen_fdivs:fdivs_1_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdivs:fdivs_2_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdivs:fdivs_13_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 20 more
+  [fail] mismatch in cr,f3: 13
+      instr__gen_fdivs:fdivs_1_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_2_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_13_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 10 more
+
+== fdiv: 67 of 288 failing
+  [fail] mismatch in cr: 51
+      instr__gen_fdiv:fdiv_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_25_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 48 more
+  [fail] mismatch in f3: 8
+      instr__gen_fdiv:fdiv_1_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdiv:fdiv_2_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdiv:fdiv_13_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 5 more
+  [fail] mismatch in cr,f3: 8
+      instr__gen_fdiv:fdiv_1_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_2_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_13_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 5 more
+
+== vaddfp: 48 of 651 failing
+  [fail] mismatch in v3: 48
+      instr__gen_vaddfp:vaddfp_56_GEN  v3 expected [00FFFF00, FFFF0000, FF0000FF, FFFF0000] actual [00FFFF00, FFFF0000, FF0000FF, FFFF00FF]
+      instr__gen_vaddfp:vaddfp_71_GEN  v3 expected [FFFCFFFD, FFFF0000, 00000000, FFFF0000] actual [FFFCFFFD, FFFEFFFF, 00000000, FFFF0000]
+      instr__gen_vaddfp:vaddfp_75_GEN  v3 expected [FFFFFFFF, FFFF0000, FFFFFFFF, FFFF0000] actual [FFFFFFFF, FFFFFFFF, FFFFFFFF, FFFFFFFF]
+      ... 45 more
+
+== fmul: 46 of 291 failing
+  [fail] mismatch in cr: 30
+      instr__gen_fmul:fmul_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_27_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 27 more
+  [fail] mismatch in f3: 8
+      instr__gen_fmul:fmul_9_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmul:fmul_10_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmul:fmul_21_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 5 more
+  [fail] mismatch in cr,f3: 8
+      instr__gen_fmul:fmul_9_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_10_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_21_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 5 more
+
+== fadd: 43 of 291 failing
+  [fail] mismatch in cr: 39
+      instr__gen_fadd:fadd_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadd:fadd_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadd:fadd_29_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 36 more
+  [fail] mismatch in f3: 2
+      instr__gen_fadd:fadd_106_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fadd:fadd_117_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fadd:fadd_106_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadd:fadd_117_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fsub: 43 of 288 failing
+  [fail] mismatch in cr: 39
+      instr__gen_fsub:fsub_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsub:fsub_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsub:fsub_29_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 36 more
+  [fail] mismatch in f3: 2
+      instr__gen_fsub:fsub_105_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fsub:fsub_118_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fsub:fsub_105_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsub:fsub_118_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== vrefp: 22 of 31 failing
+  [fail] mismatch in v2: 17
+      instr__gen_vrefp:vrefp_4_GEN  v2 expected [7F800000, 7AF6598B, 76EF204B, 72E85140] actual [7F800000, 7AF65514, 76EF1D30, 72E84E83]
+      instr__gen_vrefp:vrefp_6_GEN  v2 expected [7F800000, 3A999016, F65542EC, B213A933] actual [7F800000, 3A998D45, F6553D8D, B213A5D5]
+      instr__gen_vrefp:vrefp_7_GEN  v2 expected [7E000106, 7F800000, 80000000, FFFF00FF] actual [7E000080, 7F800000, 80000000, FFFF00FF]
+      ... 14 more
+  [fail] mismatch in v5: 5
+      instr_vrefp:vrefp_1  v5 expected [3F7FF800, 3EFFF800, 3EAAA800, 3E7FF800] actual [3F800000, 3F000000, 3EAAAAAB, 3E800000]
+      instr_vrefp:vrefp_2  v5 expected [3E4CC800, 3E2AA800, 3E124400, 3DFFF800] actual [3E4CCCCD, 3E2AAAAB, 3E124925, 3E000000]
+      instr_vrefp:vrefp_3  v5 expected [3FFFF800, 407FF800, 40FFF800, 417FF800] actual [40000000, 40800000, 41000000, 41800000]
+      ... 2 more
+
+== vlogefp: 20 of 31 failing
+  [fail] mismatch in v2: 18
+      instr__gen_vlogefp:vlogefp_4_GEN  v2 expected [FF800000, C2EDE200, C2DDCB00, C2CDB700] actual [FF800000, C2EDE391, C2DDCD99, C2CDB843]
+      instr__gen_vlogefp:vlogefp_6_GEN  v2 expected [FF800000, 411BD600, 7FC00000, 7FC00000] actual [FF800000, 411BCC77, FFC00000, FFC00000]
+      instr__gen_vlogefp:vlogefp_7_GEN  v2 expected [C2FA0040, FF800000, 7FC00000, FFFF00FF] actual [C2FA0003, FF800000, FFC00000, FFFF00FF]
+      ... 15 more
+  [fail] mismatch in v5: 2
+      instr_vlogefp:vlogefp_4  v5 expected [3FCB0000, 40148000, 40258000, 4033F800] actual [3FCAE00D, 40149A78, 40257007, 4033ABB4]
+      instr_vlogefp:vlogefp_5  v5 expected [40D4BC00, 40F4BC00, 410A5E00, 411A5E00] actual [40D49A78, 40F49A78, 410A4D3C, 411A4D3C]
+
+== fsqrts: 12 of 24 failing
+  [fail] mismatch in f2: 6
+      instr__gen_fsqrts:fsqrts_3_GEN  f2 expected 0x1E60000000000000 actual 0x0000000000000000
+      instr__gen_fsqrts:fsqrts_3_cr_GEN  f2 expected 0x1E60000000000000 actual 0x0000000000000000
+      instr__gen_fsqrts:fsqrts_4_GEN  f2 expected 0x1FFFFFFFFFFFFFFF actual 0x0000000000000000
+      ... 3 more
+  [fail] mismatch in cr,f2: 4
+      instr__gen_fsqrts:fsqrts_4_cr_GEN  f2 expected 0x1FFFFFFFFFFFFFFF actual 0x0000000000000000 ; cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrts:fsqrts_6_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsqrts:fsqrts_7_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 1 more
+  [fail] mismatch in cr: 2
+      instr__gen_fsqrts:fsqrts_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrts:fsqrts_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+
+== fres: 11 of 24 failing
+  [fail] mismatch in f2: 6
+      instr__gen_fres:fres_5_GEN  f2 expected 0x3FEFE00000000000 actual 0x3FF0000000000000
+      instr__gen_fres:fres_5_cr_GEN  f2 expected 0x3FEFE00000000000 actual 0x3FF0000000000000
+      instr__gen_fres:fres_6_GEN  f2 expected 0xBFEFE00000000000 actual 0xBFF0000000000000
+      ... 3 more
+  [fail] mismatch in cr: 5
+      instr__gen_fres:fres_1_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fres:fres_2_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fres:fres_3_cr_GEN  cr expected 0x09000000 actual 0x00000000
+      ... 2 more
+
+== fsqrt: 9 of 27 failing
+  [fail] mismatch in cr: 3
+      instr__gen_fsqrt:fsqrt_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+  [fail] mismatch in f2: 3
+      instr__gen_fsqrt:fsqrt_6_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fsqrt:fsqrt_7_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fsqrt:fsqrt_10_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+  [fail] mismatch in cr,f2: 3
+      instr__gen_fsqrt:fsqrt_6_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_7_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_10_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fctid: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctid:fctid_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctid:fctid_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctid:fctid_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== fctidz: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctidz:fctidz_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctidz:fctidz_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctidz:fctidz_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== fctiw: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctiw:fctiw_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctiw:fctiw_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctiw:fctiw_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== fctiwz: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctiwz:fctiwz_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctiwz:fctiwz_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctiwz:fctiwz_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== frsqrte: 6 of 27 failing
+  [fail] mismatch in cr: 6
+      instr__gen_frsqrte:frsqrte_1_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsqrte:frsqrte_2_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsqrte:frsqrte_6_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== mtfsb: 5 of 5 failing
+  [fail] mismatch in f2: 3
+      instr_mtfsb:mtfsb_1  f2 expected 0xFFF8000000000000 actual 0x0000000000000000
+      instr_mtfsb:mtfsb_3  f2 expected 0xFFF8000010000000 actual 0x0000000000000000
+      instr_mtfsb:mtfsb_4  f2 expected 0xFFF80000A0000100 actual 0x0000000000000000
+  [fail] mismatch in cr,f2: 1
+      instr_mtfsb:mtfsb_2  f2 expected 0xFFF8000090000000 actual 0x0000000000000000 ; cr expected 0x09000000 actual 0x00000000
+  [fail] mismatch in f4: 1
+      instr_mtfsb:mtfsb_5  f4 expected 0xFFF8000000000001 actual 0x0000000000000001
+
+== vrefp128: 5 of 5 failing
+  [fail] mismatch in v5: 5
+      instr_vrefp128:vrefp128_1  v5 expected [3F7FF800, 3EFFF800, 3EAAA800, 3E7FF800] actual [3F800000, 3F000000, 3EAAAAAB, 3E800000]
+      instr_vrefp128:vrefp128_2  v5 expected [3E4CC800, 3E2AA800, 3E124400, 3DFFF800] actual [3E4CCCCD, 3E2AAAAB, 3E124925, 3E000000]
+      instr_vrefp128:vrefp128_3  v5 expected [3FFFF800, 407FF800, 40FFF800, 417FF800] actual [40000000, 40800000, 41000000, 41800000]
+      ... 2 more
+
+== fresx: 4 of 4 failing
+  [fail] mismatch in f3: 4
+      instr_fresx:fresx_1  f3 expected 0x3FDFE00000000000 actual 0x3FE0000000000000
+      instr_fresx:fresx_2  f3 expected 0x3FCFE00000000000 actual 0x3FD0000000000000
+      instr_fresx:fresx_3  f3 expected 0x3FFFE00000000000 actual 0x4000000000000000
+      ... 1 more
+
+== frsp: 4 of 24 failing
+  [fail] mismatch in cr: 4
+      instr__gen_frsp:frsp_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsp:frsp_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsp:frsp_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 1 more
+
+== mffsx: 4 of 4 failing
+  [fail] mismatch in f3: 1
+      instr_mffsx:mffsx_1  f3 expected 0xFFF8000000000000 actual 0x0000000000000000
+  [fail] mismatch in f4: 1
+      instr_mffsx:mffsx_2  f4 expected 0xFFF8000000000001 actual 0x0000000000000001
+  [fail] mismatch in f5: 1
+      instr_mffsx:mffsx_3  f5 expected 0xFFF80000000000F0 actual 0x0000000000000000
+  [fail] mismatch in f6: 1
+      instr_mffsx:mffsx_4  f6 expected 0xFFF8000072345678 actual 0x0000000000000000
+
+== mfmsr: 2 of 2 failing
+  [fail] mismatch in r3: 1
+      instr_mfmsr:mfmsr_1  r3 expected 0x0000000000009030 actual 0x000000000200A000
+  [fail] mismatch in r4: 1
+      instr_mfmsr:mfmsr_2  r4 expected 0x0000000000009030 actual 0x000000000200A000
+
+== stwcx: 2 of 4 failing
+  [fail] mismatch in mem@0xN,r12: 2
+      instr_stwcx:stwcx_fail  r12 expected 0x0000000000000000 actual 0x0000000020000000 ; mem@0x10001000 expected 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 actual 123456780000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+      instr_stwcx:stdcx_fail  r12 expected 0x0000000000000000 actual 0x0000000020000000 ; mem@0x10001000 expected 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 actual 123456789ABCDEF000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+
+== vexptefp: 2 of 27 failing
+  [fail] mismatch in v2: 2
+      instr__gen_vexptefp:vexptefp_13_GEN  v2 expected [40000000, 40350000, 40099000, 406E0000] actual [40000000, 403504F3, 40092FE0, 406EDB40]
+      instr__gen_vexptefp:vexptefp_17_GEN  v2 expected [3F000000, 3EB50000, 3EEE0000, 3E899000] actual [3F000000, 3EB504F3, 3EEEDB40, 3E892FE0]
+
+== vmsum3fp128: 2 of 3 failing
+  [fail] mismatch in v5: 2
+      instr_vmsum3fp128:vmsum3fp128_1  v5 expected [4122A7EF, 4122A7EF, 4122A7EF, 4122A7EF] actual [4122A7F0, 4122A7F0, 4122A7F0, 4122A7F0]
+      instr_vmsum3fp128:vmsum3fp128_3  v5 expected [80000000, 80000000, 80000000, 80000000] actual [00000000, 00000000, 00000000, 00000000]
+
+== vmsum4fp128: 2 of 3 failing
+  [fail] mismatch in v5: 2
+      instr_vmsum4fp128:vmsum4fp128_1  v5 expected [41A5147A, 41A5147A, 41A5147A, 41A5147A] actual [41A5147B, 41A5147B, 41A5147B, 41A5147B]
+      instr_vmsum4fp128:vmsum4fp128_3  v5 expected [80000000, 80000000, 80000000, 80000000] actual [00000000, 00000000, 00000000, 00000000]
+
+== lvx_permute: 1 of 7 failing
+  [unimplemented] unimplemented vpkd3d128 type 6 pack 3: 1
+      instr_lvx_permute:multiple_lvx_swizzle_permute  unimplemented vpkd3d128 type 6 pack 3 at 0x82010088
+
+== vexptefp128: 1 of 5 failing
+  [fail] mismatch in v5: 1
+      instr_vexptefp128:vexptefp128_3  v5 expected [3FB50000, 3F980000, 3F8C0000, 3F860000] actual [3FB504F3, 3F9837F0, 3F8B95C2, 3F85AAC3]
+
+== vlogefp128: 1 of 5 failing
+  [fail] mismatch in v5: 1
+      instr_vlogefp128:vlogefp128_5  v5 expected [3F000000, 3F160000, 3F40A000, 3F630000] actual [3EFFFFFF, 3F15C01A, 3F400000, 3F6334DB]

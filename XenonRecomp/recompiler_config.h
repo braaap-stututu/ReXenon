@@ -42,6 +42,41 @@ struct RecompilerConfig
     // Report unresolved branches and unimplemented instructions as warnings instead of failing.
     // The generated code traps at each one either way (PPC_UNRESOLVED_BRANCH / PPC_UNIMPLEMENTED).
     bool allowUnresolved = false;
+    // Calls to functions that are only blr are left out (the call site still sets LR). A port that
+    // hooks one of them must list it in keep_functions; the elided ones are written to
+    // ppc_elided_functions.txt so a port can check.
+    bool elideEmptyFunctions = false;
+    std::unordered_set<uint32_t> keepFunctions;
+    // Guest address of the indirect-call table (8 bytes per 4-byte code word, i.e. 2x PPC_CODE_SIZE).
+    // 0 = right after the image. See the note the generator prints about the displacement.
+    uint32_t functionTableAddress = 0;
+    // sync/lwsync/eieio become real fences (PPC_CONFIG_HARDWARE_FENCES) instead of compiler barriers.
+    bool hardwareFences = false;
+    // Find switch jump tables with XenonAnalyse's patterns at load time. Entries in
+    // switch_table_file_path win over detected ones, so a file only needs the tables the patterns miss.
+    bool autoSwitchTables = false;
+    // frsqrte and vrsqrtefp use the console's estimate tables (ported from Xenia) instead of an
+    // exact 1/sqrt. Bit-exact with the hardware; a little slower (a helper call per value).
+    bool exactEstimates = false;
+    // vmaddfp/vnmsubfp(128) are emitted as fused multiply-adds (simde_mm_fmadd_ps), like the
+    // console. Only fused when the port compiles with FMA enabled (-mfma); otherwise simde does a
+    // separate multiply and add, the same as without this option.
+    bool fusedMadd = false;
+    // Seed functions from code pointers in .rdata/.data placed like a function start (right after a
+    // blr, padding or an unconditional b): virtual methods, thunks and callbacks that nothing calls
+    // directly and that have no .pdata entry. PGR4's tools/datafuncs.py rule, done at analysis time.
+    bool dataFunctionStarts = false;
+    // Split the output by guest address instead of every 256 functions: ppc_recomp.N.cpp holds the
+    // functions in [code start + N * size, code start + (N + 1) * size), and declares only the
+    // functions it references instead of including ppc_recomp_shared.h. Adding or removing a
+    // function then rewrites only its own file, so a port rebuilds one file instead of all of them.
+    // Chunk files from an earlier layout are deleted. 0 (the default) keeps the old layout.
+    uint32_t chunkByAddress = 0;
+    // Write the analysis results into this folder (relative to the config file), for review and to
+    // freeze them: functions.toml (every function not from .pdata, with its size, in the
+    // `functions` format) and switch_tables.toml (every switch table used, file and auto-found,
+    // in the switch table file format). Empty (the default) writes nothing.
+    std::string emitAnalysisPath;
     uint32_t restGpr14Address = 0;
     uint32_t saveGpr14Address = 0;
     uint32_t restFpr14Address = 0;

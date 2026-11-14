@@ -37,6 +37,11 @@ struct Recompiler
     // Everything the generated code can't do faithfully: printed as a summary at the end, and
     // the generator fails unless allow_unresolved is set.
     std::vector<std::string> problems;
+    // Functions whose last instruction falls through into the next one (emitted as a tail call).
+    size_t fallThroughs = 0;
+
+    // Functions whose body is a single blr, when elide_empty_functions is set.
+    std::unordered_set<size_t> emptyFunctions;
 
     template<class... Args>
     void problem(fmt::format_string<Args...> fmt, Args&&... args)
@@ -60,6 +65,19 @@ struct Recompiler
     }
 
     void Analyse();
+
+    // Splits functions that were sized past the start of another one; see the definition.
+    // Functions sized by analysis (bl targets and the linear scan), and those of them that came from
+    // the linear scan (code nobody calls directly). Used by MergeFragments.
+    std::unordered_set<size_t> analysedFunctions;
+    std::unordered_set<size_t> scanFragments;
+    void MergeFragments();
+    void RecompileChunkedByAddress();
+    // Functions that came from .pdata (authoritative sizes); used by EmitAnalysis.
+    std::unordered_map<size_t, size_t> pdataFunctions; // base -> size from .pdata
+    void EmitAnalysis();
+    size_t RemoveStaleChunkFiles(const std::set<std::string>& written);
+    void SplitStrandedFunctions();
 
     // TODO: make a RecompileArgs struct instead this is getting messy
     bool Recompile(

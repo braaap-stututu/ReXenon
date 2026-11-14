@@ -27,6 +27,29 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
         nonArgumentRegistersAsLocalVariables = main["non_argument_as_local"].value_or(false);
         nonVolatileRegistersAsLocalVariables = main["non_volatile_as_local"].value_or(false);
         allowUnresolved = main["allow_unresolved"].value_or(false);
+        elideEmptyFunctions = main["elide_empty_functions"].value_or(false);
+        functionTableAddress = main["function_table_address"].value_or(0u);
+        hardwareFences = main["hardware_fences"].value_or(false);
+        autoSwitchTables = main["auto_switch_tables"].value_or(false);
+        exactEstimates = main["exact_estimates"].value_or(false);
+        fusedMadd = main["fused_madd"].value_or(false);
+        dataFunctionStarts = main["data_function_starts"].value_or(false);
+        chunkByAddress = main["chunk_by_address"].value_or(0u);
+        emitAnalysisPath = main["emit_analysis_path"].value_or<std::string>("");
+        if (auto keepArray = main["keep_functions"].as_array())
+        {
+            for (auto& keep : *keepArray)
+            {
+                // A bad entry would silently let a hooked empty function's calls be elided: stop.
+                auto address = keep.value<uint32_t>();
+                if (!address)
+                {
+                    fmt::println("ERROR: keep_functions entries must be 32-bit addresses (integers, not strings)");
+                    std::exit(1);
+                }
+                keepFunctions.emplace(*address);
+            }
+        }
 
         restGpr14Address = main["restgprlr_14_address"].value_or(0u);
         saveGpr14Address = main["savegprlr_14_address"].value_or(0u);

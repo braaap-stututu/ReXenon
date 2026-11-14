@@ -33,6 +33,21 @@ public:
         return match;
     }
 
+    // The function whose [address, address + size) contains address, if any; find() only matches
+    // symbols that start exactly at address. Looks at the nearest few starts below address, which is
+    // enough for the overlaps .pdata and analysis produce.
+    const_iterator findContaining(size_t address) const
+    {
+        auto it = upper_bound(address);
+        for (int i = 0; i < 64 && it != begin(); i++)
+        {
+            --it;
+            if (it->type == Symbol_Function && address < it->address + it->size)
+                return it;
+        }
+        return end();
+    }
+
     iterator find(size_t address)
     {
         auto [beginIt, endIt] = equal_range(address);

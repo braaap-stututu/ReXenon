@@ -38,7 +38,7 @@ size_t Function::SearchBlock(size_t address) const
     return -1;
 }
 
-Function Function::Analyze(const void* code, size_t size, size_t base)
+Function Function::Analyze(const void* code, size_t size, size_t base, const std::unordered_map<size_t, std::vector<size_t>>* jumpTables)
 {
     Function fn{ base, 0 };
 
@@ -180,6 +180,30 @@ Function Function::Analyze(const void* code, size_t size, size_t base)
                 }
                 else if (op == PPC_OP_CTR)
                 {
+                    // A switch's bctr: its cases are blocks of this function.
+                    if (xop == 528 && jumpTables != nullptr)
+                    {
+                        auto table = jumpTables->find(addr);
+                        if (table != jumpTables->end())
+                        {
+                            bool pushed = false;
+                            for (size_t label : table->second)
+                            {
+                                if (label < base || label >= base + size || fn.SearchBlock(label) != -1)
+                                    continue;
+                                blocks.emplace_back(label - base, 0);
+                                DEBUG(blocks.back().parent = blockBase);
+                                blockStack.emplace_back(blocks.size() - 1);
+                                pushed = true;
+                            }
+                            if (pushed)
+                            {
+                                RESTORE_DATA();
+                                continue;
+                            }
+                        }
+                    }
+
                     // 5th bit of BO tells cpu to ignore the counter, which is a blr/bctr otherwise it's conditional
                     const bool conditional = !(PPC_BO(instruction) & 0x10);
                     if (conditional)

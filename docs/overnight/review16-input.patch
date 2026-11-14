@@ -1,0 +1,224 @@
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index f65584b..2473b99 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -1865,7 +1865,7 @@ bool Recompiler::Recompile(
+             }
+ 
+             println("\tdefault:");
+-            println("\t\t__builtin_unreachable();");
++            println("\t\tPPC_SWITCH_MISS(0x{:X}, {}.u32);", base, r(switchTable->second.r));
+             println("\t}}");
+ 
+             switchTable = config.switchTables.end();
+@@ -4273,21 +4273,28 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
+         fmt::println("Eliding calls to {} empty functions", sorted.size());
+     }
+ 
+-    for (size_t i = 0; i < functions.size(); i++)
++    if (config.chunkByAddress != 0)
++    {
++        RecompileChunkedByAddress();
++    }
++    else
+     {
+-        if ((i % 256) == 0)
++        for (size_t i = 0; i < functions.size(); i++)
+         {
+-            SaveCurrentOutData();
+-            println("#include \"ppc_recomp_shared.h\"\n");
+-        }
++            if ((i % 256) == 0)
++            {
++                SaveCurrentOutData();
++                println("#include \"ppc_recomp_shared.h\"\n");
++            }
+ 
+-        if ((i % 2048) == 0 || (i == (functions.size() - 1)))
+-            fmt::println("Recompiling functions... {}%", static_cast<float>(i + 1) / functions.size() * 100.0f);
++            if ((i % 2048) == 0 || (i == (functions.size() - 1)))
++                fmt::println("Recompiling functions... {}%", static_cast<float>(i + 1) / functions.size() * 100.0f);
+ 
+-        Recompile(functions[i]);
+-    }
++            Recompile(functions[i]);
++        }
+ 
+-    SaveCurrentOutData();
++        SaveCurrentOutData();
++    }
+ 
+     if (fallThroughs != 0)
+         fmt::println("{} function(s) fall through into the next one (emitted as tail calls)", fallThroughs);
+@@ -4306,6 +4313,96 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
+     return true;
+ }
+ 
++void Recompiler::RecompileChunkedByAddress()
++{
++    size_t codeStart = SIZE_MAX;
++    for (const auto& section : image.sections)
++    {
++        if (section.flags & SectionFlags_Code)
++            codeStart = (std::min)(codeStart, size_t(section.base));
++    }
++
++    // functions is sorted by address, so each chunk is a contiguous run.
++    std::map<size_t, std::vector<size_t>> chunks;
++    for (size_t i = 0; i < functions.size(); i++)
++        chunks[(functions[i].base - codeStart) / config.chunkByAddress].push_back(i);
++
++    std::unordered_set<std::string_view> names;
++    for (const auto& symbol : image.symbols)
++        names.insert(symbol.name);
++
++    auto isIdentifierStart = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
++    auto isIdentifier = [&](char c) { return isIdentifierStart(c) || (c >= '0' && c <= '9'); };
++
++    std::set<std::string> written;
++    size_t done = 0, nextReport = 0;
++    for (const auto& [index, members] : chunks)
++    {
++        for (size_t i : members)
++        {
++            Recompile(functions[i]);
++            if (++done >= nextReport || done == functions.size())
++            {
++                fmt::println("Recompiling functions... {}%", static_cast<float>(done) / functions.size() * 100.0f);
++                nextReport = done + 2048;
++            }
++        }
++
++        // Declare every function this chunk names (calls, tail calls, its own definitions).
++        std::set<std::string_view> referenced;
++        const std::string body = std::move(out);
++        out.clear();
++        for (size_t p = 0; p < body.size(); )
++        {
++            if (!isIdentifierStart(body[p]) || (p != 0 && isIdentifier(body[p - 1])))
++            {
++                ++p;
++                continue;
++            }
++            size_t e = p;
++            while (e < body.size() && isIdentifier(body[e]))
++                ++e;
++            auto name = names.find(std::string_view(body).substr(p, e - p));
++            if (name != names.end())
++                referenced.insert(*name);
++            p = e;
++        }
++
++        println("#include \"ppc_config.h\"");
++        println("#include \"ppc_context.h\"\n");
++        for (auto name : referenced)
++            println("PPC_EXTERN_FUNC({});", name);
++        println("");
++        out += body;
++
++        const std::string fileName = fmt::format("ppc_recomp.{}.cpp", index);
++        SaveCurrentOutData(fileName);
++        written.insert(fileName);
++    }
++
++    // Remove chunk files this layout didn't write (from the old layout or a bigger chunk count):
++    // a port that globs ppc_recomp.*.cpp would otherwise build them and get duplicate functions.
++    std::string directoryPath = config.directoryPath;
++    if (!directoryPath.empty())
++        directoryPath += "/";
++    const std::filesystem::path outDirectory = directoryPath + config.outDirectoryPath;
++    size_t removed = 0;
++    std::error_code ec;
++    for (const auto& entry : std::filesystem::directory_iterator(outDirectory, ec))
++    {
++        const std::string fileName = entry.path().filename().string();
++        if (fileName.size() > 15 && fileName.compare(0, 11, "ppc_recomp.") == 0 && fileName.compare(fileName.size() - 4, 4, ".cpp") == 0 &&
++            std::all_of(fileName.begin() + 11, fileName.end() - 4, [](char c) { return c >= '0' && c <= '9'; }) &&
++            !written.count(fileName))
++        {
++            std::filesystem::remove(entry.path(), ec);
++            ++removed;
++        }
++    }
++    fmt::println("{} chunk file(s) by address (0x{:X} bytes of guest code each){}", chunks.size(), config.chunkByAddress,
++        removed != 0 ? fmt::format("; removed {} stale chunk file(s)", removed) : "");
++}
++
+ void Recompiler::SaveCurrentOutData(const std::string_view& name)
+ {
+     if (!out.empty())
+diff --git a/XenonRecomp/recompiler.h b/XenonRecomp/recompiler.h
+index 982b65d..ddebd06 100644
+--- a/XenonRecomp/recompiler.h
++++ b/XenonRecomp/recompiler.h
+@@ -72,6 +72,7 @@ struct Recompiler
+     std::unordered_set<size_t> analysedFunctions;
+     std::unordered_set<size_t> scanFragments;
+     void MergeFragments();
++    void RecompileChunkedByAddress();
+     void SplitStrandedFunctions();
+ 
+     // TODO: make a RecompileArgs struct instead this is getting messy
+diff --git a/XenonRecomp/recompiler_config.cpp b/XenonRecomp/recompiler_config.cpp
+index ad41f46..0c7e20a 100644
+--- a/XenonRecomp/recompiler_config.cpp
++++ b/XenonRecomp/recompiler_config.cpp
+@@ -34,6 +34,7 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
+         exactEstimates = main["exact_estimates"].value_or(false);
+         fusedMadd = main["fused_madd"].value_or(false);
+         dataFunctionStarts = main["data_function_starts"].value_or(false);
++        chunkByAddress = main["chunk_by_address"].value_or(0u);
+         if (auto keepArray = main["keep_functions"].as_array())
+         {
+             for (auto& keep : *keepArray)
+diff --git a/XenonRecomp/recompiler_config.h b/XenonRecomp/recompiler_config.h
+index 1dbcd75..40a29d8 100644
+--- a/XenonRecomp/recompiler_config.h
++++ b/XenonRecomp/recompiler_config.h
+@@ -66,6 +66,12 @@ struct RecompilerConfig
+     // blr, padding or an unconditional b): virtual methods, thunks and callbacks that nothing calls
+     // directly and that have no .pdata entry. PGR4's tools/datafuncs.py rule, done at analysis time.
+     bool dataFunctionStarts = false;
++    // Split the output by guest address instead of every 256 functions: ppc_recomp.N.cpp holds the
++    // functions in [code start + N * size, code start + (N + 1) * size), and declares only the
++    // functions it references instead of including ppc_recomp_shared.h. Adding or removing a
++    // function then rewrites only its own file, so a port rebuilds one file instead of all of them.
++    // Chunk files from an earlier layout are deleted. 0 (the default) keeps the old layout.
++    uint32_t chunkByAddress = 0;
+     uint32_t restGpr14Address = 0;
+     uint32_t saveGpr14Address = 0;
+     uint32_t restFpr14Address = 0;
+diff --git a/XenonUtils/ppc_context.h b/XenonUtils/ppc_context.h
+index d60d403..8b7e983 100644
+--- a/XenonUtils/ppc_context.h
++++ b/XenonUtils/ppc_context.h
+@@ -167,9 +167,29 @@
+ #define PPC_UNIMPLEMENTED(address, what) __builtin_trap()
+ #endif
+ 
++// A switch index past the end of its table. The guest's bounds check rules it out, so by default
++// the compiler may assume it can't happen (the same code as before this macro existed). A port
++// can define it to log the bctr's address and the index if a table's size is in doubt.
++#ifndef PPC_SWITCH_MISS
++#define PPC_SWITCH_MISS(address, index) __builtin_unreachable()
++#endif
++
++// An indirect call through an empty table slot (no recompiled function at that address) calls
++// null. Define PPC_CHECK_INDIRECT_CALLS to call PPC_INDIRECT_MISS(address) instead (a branch per
++// call; it traps by default, and a port can define it to log the target first). A port can also
++// fill the empty slots with a stub at load time, which costs nothing per call.
++#ifndef PPC_INDIRECT_MISS
++#define PPC_INDIRECT_MISS(address) __builtin_trap()
++#endif
++
+ #ifndef PPC_CALL_INDIRECT_FUNC
++#ifdef PPC_CHECK_INDIRECT_CALLS
++#define PPC_CALL_INDIRECT_FUNC(x) \
++    ((PPC_LOOKUP_FUNC(base, x)) != nullptr ? (PPC_LOOKUP_FUNC(base, x))(ctx, base) : PPC_INDIRECT_MISS(uint32_t(x)))
++#else
+ #define PPC_CALL_INDIRECT_FUNC(x) (PPC_LOOKUP_FUNC(base, x))(ctx, base)
+ #endif
++#endif
+ 
+ typedef void PPCFunc(struct PPCContext& __restrict__ ctx, uint8_t* base);
+ 

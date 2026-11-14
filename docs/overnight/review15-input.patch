@@ -1,0 +1,446 @@
+diff --git a/ReXenonTests/run.py b/ReXenonTests/run.py
+index 6f40b1c..9177fd9 100644
+--- a/ReXenonTests/run.py
++++ b/ReXenonTests/run.py
+@@ -173,7 +173,11 @@ def run_suite(name, exe, total):
+             break
+         if code == 0:
+             break
+-        # the test after the last reported one took the process down (or hung, reported as HANG)
++        # The harness reports a hung test itself (HANG) and then exits: carry on after it. Otherwise
++        # the test after the last reported one took the process down.
++        if last >= start and results[last][0] == "HANG":
++            start = last + 1
++            continue
+         nxt = last + 1
+         if nxt < total and nxt not in results:
+             results[nxt] = ("CRASH", None, "process exited with 0x%08X" % (code & 0xFFFFFFFF))
+diff --git a/XenonAnalyse/switch_tables.cpp b/XenonAnalyse/switch_tables.cpp
+index e0deb22..bbd2967 100644
+--- a/XenonAnalyse/switch_tables.cpp
++++ b/XenonAnalyse/switch_tables.cpp
+@@ -5,7 +5,21 @@
+ #include <image.h>
+ #include <xbox.h>
+ 
+-static void ReadTable(Image& image, SwitchTable& table)
++// The bytes [address, address + size) if they lie inside one section with data, else nullptr.
++// (Image::Find returns a pointer for any address, so a table read must be bounded here.)
++static const uint8_t* SectionBytes(const Image& image, size_t address, size_t size)
++{
++    for (const auto& section : image.sections)
++    {
++        if (section.data != nullptr && address >= section.base && address + size <= section.base + section.size)
++            return section.data + (address - section.base);
++    }
++    return nullptr;
++}
++
++// Reads the table's entries into its labels. False if the table doesn't lie inside the image
++// (a bounds check that belongs to some other code gave a size far too large).
++static bool ReadTable(Image& image, SwitchTable& table)
+ {
+     uint32_t pOffset;
+     ppc_insn insn;
+@@ -16,6 +30,10 @@ static void ReadTable(Image& image, SwitchTable& table)
+     ppc::Disassemble(code + 1, table.base + 4, insn);
+     pOffset += insn.operands[2];
+ 
++    const size_t entrySize = table.type == SWITCH_ABSOLUTE ? 4 : table.type == SWITCH_SHORTOFFSET ? 2 : 1;
++    if (SectionBytes(image, pOffset, table.labels.size() * entrySize) == nullptr)
++        return false;
++
+     if (table.type == SWITCH_ABSOLUTE)
+     {
+         const auto* offsets = (be<uint32_t>*)image.Find(pOffset);
+@@ -83,6 +101,7 @@ static void ReadTable(Image& image, SwitchTable& table)
+     {
+         assert(false);
+     }
++    return true;
+ }
+ 
+ static void ScanTable(const uint32_t* code, size_t base, SwitchTable& table)
+@@ -221,14 +240,65 @@ std::vector<SwitchTable> FindSwitchTables(Image& image, SwitchTableType type)
+                 SwitchTable table{};
+                 table.type = type;
+                 ScanTable((uint32_t*)data, base + (data - dataStart), table);
+-                if (table.base != 0)
+-                {
+-                    ReadTable(image, table);
++                if (table.base != 0 && ReadTable(image, table))
+                     switches.emplace_back(std::move(table));
+-                }
+                 data += 4;
+             }
+         }
+     }
+     return switches;
+ }
++
++bool IsPlausibleSwitchTable(const Image& image, const SwitchTable& table, std::string* reason)
++{
++    auto fail = [&](const char* why) { if (reason) *reason = why; return false; };
++
++    if (table.labels.empty() || table.labels.size() > 4096)
++        return fail("implausible case count");
++
++    // The register the pattern indexes with: the rlwinm source (scaled tables) or the lbzx index.
++    const uint32_t* code = (const uint32_t*)SectionBytes(image, table.base, 3 * 4);
++    if (code == nullptr)
++        return fail("pattern outside the image");
++    ppc_insn tableAddress, indexing;
++    ppc::Disassemble(code + 1, table.base + 4, tableAddress);
++    ppc::Disassemble(code + 2, table.base + 8, indexing);
++    if (tableAddress.opcode == nullptr || indexing.opcode == nullptr)
++        return fail("pattern doesn't decode");
++    uint32_t index;
++    if (indexing.opcode->id == PPC_INST_RLWINM)
++        index = indexing.operands[1];
++    else if (indexing.opcode->id == PPC_INST_LBZX)
++        index = indexing.operands[1] == tableAddress.operands[0] ? indexing.operands[2] : indexing.operands[1];
++    else
++        return fail("unexpected indexing instruction");
++
++    // The bounds check must test that register, or one copied into it (mr) before the pattern.
++    bool matches = table.r == index;
++    for (int i = 1; i <= 32 && !matches; i++)
++    {
++        const uint32_t* word = (const uint32_t*)SectionBytes(image, table.base - 4 * i, 4);
++        if (word == nullptr)
++            break;
++        ppc_insn insn;
++        ppc::Disassemble(word, table.base - 4 * i, insn);
++        if (insn.opcode != nullptr && insn.opcode->id == PPC_INST_MR &&
++            ((insn.operands[0] == index && insn.operands[1] == table.r) || (insn.operands[0] == table.r && insn.operands[1] == index)))
++            matches = true;
++    }
++    if (!matches)
++        return fail("the bounds check tests a different register");
++
++    for (size_t label : table.labels)
++    {
++        bool inCode = false;
++        for (const auto& section : image.sections)
++        {
++            if ((section.flags & SectionFlags_Code) && label >= section.base && label < section.base + section.size)
++                inCode = true;
++        }
++        if ((label & 3) != 0 || !inCode)
++            return fail("a case label isn't an aligned code address");
++    }
++    return true;
++}
+diff --git a/XenonAnalyse/switch_tables.h b/XenonAnalyse/switch_tables.h
+index 17d9512..e7a3678 100644
+--- a/XenonAnalyse/switch_tables.h
++++ b/XenonAnalyse/switch_tables.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include <cstddef>
+ #include <cstdint>
++#include <string>
+ #include <vector>
+ 
+ struct Image;
+@@ -28,3 +29,8 @@ struct SwitchTable
+ 
+ // The tables of one pattern type, in address order.
+ std::vector<SwitchTable> FindSwitchTables(Image& image, SwitchTableType type);
++
++// Checks a pattern-found table before it is trusted without review (auto_switch_tables): a sane
++// case count, a bounds check on the register the pattern actually indexes with (directly or
++// through an mr), and every label an aligned code address. On failure, reason says why.
++bool IsPlausibleSwitchTable(const Image& image, const SwitchTable& table, std::string* reason = nullptr);
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index 99b00d3..b1ed698 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -94,7 +94,7 @@ bool Recompiler::LoadConfig(const std::string_view& configFilePath)
+ 
+     if (config.autoSwitchTables)
+     {
+-        size_t found = 0, added = 0;
++        size_t found = 0, added = 0, rejected = 0;
+         for (auto type : { SWITCH_ABSOLUTE, SWITCH_COMPUTED, SWITCH_BYTEOFFSET, SWITCH_SHORTOFFSET })
+         {
+             for (auto& table : FindSwitchTables(image, type))
+@@ -103,6 +103,16 @@ bool Recompiler::LoadConfig(const std::string_view& configFilePath)
+                 if (config.switchTables.find(uint32_t(table.base)) != config.switchTables.end())
+                     continue;
+ 
++                // Not reviewed by anyone, so check it. A rejected table that is a real switch is
++                // then reported by the "jump table with no switch table entry" problem.
++                std::string reason;
++                if (!IsPlausibleSwitchTable(image, table, &reason))
++                {
++                    fmt::println("Switch table at {:X} rejected: {}", table.base, reason);
++                    rejected++;
++                    continue;
++                }
++
+                 RecompilerSwitchTable switchTable;
+                 switchTable.r = table.r;
+                 for (size_t label : table.labels)
+@@ -111,7 +121,7 @@ bool Recompiler::LoadConfig(const std::string_view& configFilePath)
+                 added++;
+             }
+         }
+-        fmt::println("Switch tables: {} found by pattern, {} added (the rest are in the switch table file)", found, added);
++        fmt::println("Switch tables: {} found by pattern, {} added, {} rejected (the rest are in the switch table file)", found, added, rejected);
+     }
+ 
+     return true;
+@@ -269,7 +279,9 @@ void Recompiler::Analyse()
+         {
+             if ((dataSection.name != ".rdata" && dataSection.name != ".data") || dataSection.data == nullptr)
+                 continue;
+-            for (size_t offset = 0; offset + 4 <= dataSection.size; offset += 4)
++            const uint8_t* imageEnd = image.data.get() + image.size;
++            const size_t size = dataSection.data >= imageEnd ? 0 : std::min<size_t>(dataSection.size, imageEnd - dataSection.data);
++            for (size_t offset = 0; offset + 4 <= size; offset += 4)
+             {
+                 const size_t target = ByteSwap(*(const uint32_t*)(dataSection.data + offset));
+                 uint32_t w, previous;
+@@ -393,6 +405,80 @@ void Recompiler::MergeFragments()
+             return false;
+         };
+ 
++    // Addresses the program takes the address of: a word in a data section that points into code,
++    // or a lis + addi/ori pair in code that builds one. A fragment starting at one of these may be
++    // a function reached only through a pointer (a vtable entry, a callback), so it is never
++    // absorbed: its entry point has to survive. (Pointers computed some other way aren't seen.)
++    auto isCode = [&](size_t address)
++        {
++            uint32_t w;
++            return (address & 3) == 0 && word(address, w);
++        };
++    // The words of known switch patterns (lis/addi of the table and of the case code's base, from
++    // the pattern start up to its bctr).
++    std::unordered_set<size_t> switchPatternWords;
++    for (const auto& [tableBase, table] : config.switchTables)
++    {
++        for (size_t address = tableBase; address < tableBase + 32 * 4; address += 4)
++        {
++            uint32_t w;
++            if (!word(address, w))
++                break;
++            switchPatternWords.insert(address);
++            if (w == 0x4E800420) // bctr
++                break;
++        }
++    }
++
++    std::unordered_set<size_t> addressTaken;
++    for (const auto& section : image.sections)
++    {
++        if (section.data == nullptr)
++            continue;
++        // A section's virtual size can run past the loaded image (a zero-filled tail): stop there.
++        const uint8_t* imageEnd = image.data.get() + image.size;
++        const size_t size = section.data >= imageEnd ? 0 : std::min<size_t>(section.size, imageEnd - section.data);
++        if (!(section.flags & SectionFlags_Code))
++        {
++            for (size_t offset = 0; offset + 4 <= size; offset += 4)
++            {
++                const size_t target = ByteSwap(*(const uint32_t*)(section.data + offset));
++                if (isCode(target))
++                    addressTaken.insert(target);
++            }
++            continue;
++        }
++        for (size_t offset = 0; offset + 4 <= size; offset += 4)
++        {
++            const uint32_t w = ByteSwap(*(const uint32_t*)(section.data + offset));
++            const uint32_t op = w >> 26;
++            if (op != 14 && op != 24) // addi, ori
++                continue;
++            if (switchPatternWords.count(section.base + offset))
++                continue; // a switch's table or case-code base, not a function pointer
++            const uint32_t source = op == 14 ? (w >> 16) & 0x1F : (w >> 21) & 0x1F;
++            if (op == 14 && source == 0)
++                continue; // li
++            for (size_t back = 1; back <= 8 && back * 4 <= offset; back++)
++            {
++                const uint32_t previous = ByteSwap(*(const uint32_t*)(section.data + offset - back * 4));
++                if ((previous >> 26) == 15 && ((previous >> 16) & 0x1F) == 0 && ((previous >> 21) & 0x1F) == source) // lis source
++                {
++                    const uint32_t high = previous << 16;
++                    const size_t target = op == 14 ? uint32_t(high + int32_t(int16_t(w & 0xFFFF))) : (high | (w & 0xFFFF));
++                    if (isCode(target))
++                        addressTaken.insert(target);
++                    break;
++                }
++            }
++        }
++    }
++
++    // Case labels sit in .rdata tables too, but they are not entry points.
++    for (const auto& [tableBase, table] : config.switchTables)
++        for (uint32_t label : table.labels)
++            addressTaken.erase(label);
++
+     // (target, from a switch case)
+     auto targetsOf = [&](size_t address, std::vector<std::pair<size_t, bool>>& targets)
+         {
+@@ -460,7 +546,7 @@ void Recompiler::MergeFragments()
+                 {
+                     if (f.base == start || f.base + f.size <= start || f.base >= end)
+                         continue;
+-                    if (f.base < start || !scanFragments.count(f.base))
++                    if (f.base < start || !scanFragments.count(f.base) || addressTaken.count(f.base))
+                     {
+                         ok = false;
+                         break;
+@@ -900,9 +986,10 @@ bool Recompiler::Recompile(
+                 }
+                 else
+                 {
+-                    println("\tif ({}) {{", cond);
++                    // With LK set, LR is written whether or not the branch is taken.
+                     if (link && !config.skipLr)
+-                        println("\t\tctx.lr = 0x{:X};", base + 4);
++                        println("\tctx.lr = 0x{:X};", base + 4);
++                    println("\tif ({}) {{", cond);
+                     print("\t");
+                     printFunctionCall(target);
+                     if (!link)
+@@ -920,15 +1007,16 @@ bool Recompiler::Recompile(
+                 }
+                 else
+                 {
+-                    println("\tif ({}) {{ uint32_t target = ctx.lr; ctx.lr = 0x{:X}; PPC_CALL_INDIRECT_FUNC(target); }}", cond, base + 4);
++                    // The target is the old LR; LR is written whether or not the branch is taken.
++                    println("\t{{ uint32_t target = ctx.lr; ctx.lr = 0x{:X}; if ({}) PPC_CALL_INDIRECT_FUNC(target); }}", base + 4, cond);
+                     csrState = CSRState::Unknown;
+                 }
+             }
+             else
+             {
+-                println("\tif ({}) {{", cond);
+                 if (link && !config.skipLr)
+-                    println("\t\tctx.lr = 0x{:X};", base + 4);
++                    println("\tctx.lr = 0x{:X};", base + 4);
++                println("\tif ({}) {{", cond);
+                 println("\t\tPPC_CALL_INDIRECT_FUNC({}.u32);", ctr());
+                 if (!link)
+                     println("\t\treturn;");
+@@ -3273,8 +3361,10 @@ bool Recompiler::Recompile(
+         // TODO: vectorize somehow?
+         // NOTE: handling vector reversal here too
+         printSetFlushMode(true);
+-        if (!((insn.operands[2] == 0 && insn.operands[3] == 1) || (insn.operands[2] == 3 && insn.operands[3] == 1) ||
+-            (insn.operands[2] == 5 && insn.operands[3] == 2 && insn.operands[4] <= 2)))
++        // Only D3DCOLOR keeps its old dedicated code (it stages through temps, so vD == vB is safe).
++        // The old FLOAT16_2/FLOAT16_4 code wrote vD while still reading vB, which broke
++        // `vpkd3d128 v0,v0,5,2,2` (FM2 has 8) and type 3 with shift 2; they take the generic path.
++        if (!(insn.operands[2] == 0 && insn.operands[3] == 1))
+         {
+             // Generic form, after Xenia: pack vB into P (big-endian elements x,y,z,w), then each
+             // element of vD keeps its old value or takes one of P's, by (pack, shift).
+@@ -3362,35 +3452,6 @@ bool Recompiler::Recompile(
+             println("\t{}.u32[{}] = {}.u32;", v(insn.operands[0]), insn.operands[4], temp());
+             break;
+ 
+-        case 3: // float16_2 into one word (word index = 3 - shift, reversed)
+-            if (insn.operands[3] != 1)
+-                fmt::println("Unexpected float16_2 pack instruction at {:X}", base);
+-            println("\t{}.u16[{}] = ppc_float_to_xenos_half({}.f32[3]);", v(insn.operands[0]), 2 * insn.operands[4] + 1, v(insn.operands[1]));
+-            println("\t{}.u16[{}] = ppc_float_to_xenos_half({}.f32[2]);", v(insn.operands[0]), 2 * insn.operands[4], v(insn.operands[1]));
+-            break;
+-
+-        case 5: // float16_4
+-            if (insn.operands[3] != 2 || insn.operands[4] > 2)
+-                fmt::println("Unexpected float16_4 pack instruction at {:X}", base);
+-
+-            for (size_t i = 0; i < 4; i++)
+-            {
+-        		// Strip sign from source
+-        		println("\t{}.u32 = ({}.u32[{}]&0x7FFFFFFF);", temp(), v(insn.operands[1]), i);
+-        		// If |source| is > 65504, clamp output to 0x7FFF, else save 8 exponent bits 
+-        		println("\t{0}.u8[0] = ({1}.f32 != {1}.f32) || ({1}.f32 > 65504.0f) ? 0xFF : (({2}.u32[{3}]&0x7f800000)>>23);", vTemp(), temp(), v(insn.operands[1]), i);
+-        		// If 8 exponent bits were saved, it can only be 0x8E at most
+-        		// If saved, save first 10 bits of mantissa
+-        		println("\t{}.u16 = {}.u8[0] != 0xFF ? (({}.u32[{}]&0x7FE000)>>13) : 0x0;", temp(), vTemp(), v(insn.operands[1]), i);
+-        		// If saved and > 127-15, exponent is converted from 8 to 5-bit by subtracting 0x70
+-        		// If saved but not > 127-15, clamp exponent at 0, add 0x400 to mantissa and shift right by (0x71-exponent)
+-        		// If right shift is greater than 31 bits, manually clamp mantissa to 0 or else the output of the shift will be wrong
+-        		println("\t{0}.u16[{1}] = {2}.u8[0] != 0xFF ? ({2}.u8[0] > 0x70 ? ((({2}.u8[0]-0x70)<<10)+{3}.u16) : (0x71-{2}.u8[0] > 31 ? 0x0 : ((0x400+{3}.u16)>>(0x71-{2}.u8[0])))) : 0x7FFF;", v(insn.operands[0]), i+(2*insn.operands[4]), vTemp(), temp());
+-        		// Add back original sign
+-        		println("\t{}.u16[{}] |= (({}.u32[{}]&0x80000000)>>16);", v(insn.operands[0]), i+(2*insn.operands[4]), v(insn.operands[1]), i);
+-            }
+-            break;
+-
+         default:
+             println("\tPPC_UNIMPLEMENTED(0x{:X}, \"{} type {}\");", base, insn.opcode->name, insn.operands[2]);
+             problem("{:X} (in {:X}): {} type {} isn't implemented", base, fn.base, insn.opcode->name, insn.operands[2]);
+@@ -3984,9 +4045,11 @@ bool Recompiler::Recompile(const Function& fn)
+             fallsThrough = false; // padding, twi 31 (always traps)
+         else if ((last >> 26) == 31 && ((last >> 1) & 0x3FF) == 4 && ((last >> 21) & 0x1F) == 31)
+             fallsThrough = false; // tw 31
+-        else if (PPC_BL(last) && (PPC_OP(last) == PPC_OP_B || PPC_OP(last) == PPC_OP_BC || PPC_OP(last) == PPC_OP_CTR))
+-            fallsThrough = false; // ends in a call: to a routine that doesn't return (an assert, KeBugCheck). If
+-                                  // a port's hook of it returns, returning here is safer than running on.
++        else if (PPC_BL(last) && (PPC_OP(last) == PPC_OP_B ||
++            ((PPC_OP(last) == PPC_OP_BC || PPC_OP(last) == PPC_OP_CTR) && (PPC_BO(last) & 0x14) == 0x14)))
++            fallsThrough = false; // ends in an unconditional call: to a routine that doesn't return (an assert,
++                                  // KeBugCheck). If a port's hook of it returns, returning here is safer than
++                                  // running on. A conditional call's not-taken path does run on, as a tail call.
+ 
+         if (fallsThrough)
+         {
+diff --git a/XenonRecomp/recompiler_config.cpp b/XenonRecomp/recompiler_config.cpp
+index 8f92cf6..ad41f46 100644
+--- a/XenonRecomp/recompiler_config.cpp
++++ b/XenonRecomp/recompiler_config.cpp
+@@ -37,7 +37,16 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
+         if (auto keepArray = main["keep_functions"].as_array())
+         {
+             for (auto& keep : *keepArray)
+-                keepFunctions.emplace(*keep.value<uint32_t>());
++            {
++                // A bad entry would silently let a hooked empty function's calls be elided: stop.
++                auto address = keep.value<uint32_t>();
++                if (!address)
++                {
++                    fmt::println("ERROR: keep_functions entries must be 32-bit addresses (integers, not strings)");
++                    std::exit(1);
++                }
++                keepFunctions.emplace(*address);
++            }
+         }
+ 
+         restGpr14Address = main["restgprlr_14_address"].value_or(0u);
+diff --git a/XenonUtils/ppc_context.h b/XenonUtils/ppc_context.h
+index b02ea81..d60d403 100644
+--- a/XenonUtils/ppc_context.h
++++ b/XenonUtils/ppc_context.h
+@@ -822,20 +822,18 @@ inline uint32_t ppc_pack_clamp(float f, uint32_t minBits, uint32_t maxBits)
+     return bits;
+ }
+ 
+-// float -> Xenos half (no inf/NaN: saturates to 0x7FFF, truncates).
++// float -> Xenos half, as Xenia's emit_fast_f16_pack does it. The Xenos half has no inf or NaN:
++// exponent 31 is an ordinary exponent, so the largest value is 131008 (0x7FFF). Anything at or
++// above 0x47FFE000 (inf and NaN included) saturates to 0x7FFF, anything below the smallest
++// normal half (2^-14) flushes to a signed zero, and the mantissa is truncated.
+ inline uint16_t ppc_float_to_xenos_half(float f)
+ {
+     uint32_t bits;
+     __builtin_memcpy(&bits, &f, 4);
+-    uint16_t sign = uint16_t((bits >> 16) & 0x8000);
+-    uint32_t a = bits & 0x7FFFFFFF;
+-    if (a > 0x477FE000) return sign | 0x7FFF;      // > 65504 or NaN
+-    if (a < 0x38800000)                            // denormal / zero
+-    {
+-        uint32_t e = a >> 23;
+-        if (e < 103) return sign;
+-        return sign | uint16_t(((a & 0x7FFFFF) | 0x800000) >> (126 - e));
+-    }
++    const uint16_t sign = uint16_t((bits >> 16) & 0x8000);
++    const uint32_t a = bits & 0x7FFFFFFF;
++    if (a >= 0x47FFE000) return sign | 0x7FFF;
++    if (a < 0x38800000) return sign;
+     return sign | uint16_t((a - 0x38000000) >> 13);
+ }
+ 

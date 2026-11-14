@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <vector>
+#include <unordered_map>
 
 #ifdef _DEBUG
 #define DEBUG(X) X
@@ -47,5 +48,9 @@ struct Function
     }
     
     size_t SearchBlock(size_t address) const;
-    static Function Analyze(const void* code, size_t size, size_t base);
+    // jumpTables (optional): case labels by the address of their table's bctr. A function's extent
+    // then covers its switch cases (a bctr otherwise ends the block, and the cases past the last
+    // reached instruction are cut off into functions of their own).
+    static Function Analyze(const void* code, size_t size, size_t base,
+        const std::unordered_map<size_t, std::vector<size_t>>* jumpTables = nullptr);
 };

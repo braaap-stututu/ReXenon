@@ -5,6 +5,7 @@
 #error "ppc_config.h must be included before ppc_context.h"
 #endif
 
+#include <atomic>
 #include <climits>
 #include <cmath>
 #include <csetjmp>
@@ -15,6 +16,7 @@
 #include <x86/avx.h>
 #include <x86/sse.h>
 #include <x86/sse4.1.h>
+#include <x86/fma.h>
 
 // SSE3 constants are missing from simde
 #ifndef _MM_DENORMALS_ZERO_MASK
@@ -107,7 +109,53 @@
 
 #define PPC_MEMORY_SIZE 0x100000000ull
 
-#define PPC_LOOKUP_FUNC(x, y) *(PPCFunc**)(x + PPC_IMAGE_BASE + PPC_IMAGE_SIZE + (uint64_t(uint32_t(y) - PPC_CODE_BASE) * 2))
+// The indirect-call table: one host pointer per 4-byte guest code word. Its guest address is
+// PPC_FUNC_TABLE_BASE (function_table_address in the config), right after the image by default.
+#ifndef PPC_FUNC_TABLE_BASE
+#define PPC_FUNC_TABLE_BASE (PPC_IMAGE_BASE + PPC_IMAGE_SIZE)
+#endif
+
+#define PPC_LOOKUP_FUNC(x, y) *(PPCFunc**)(x + PPC_FUNC_TABLE_BASE + (uint64_t(uint32_t(y) - PPC_CODE_BASE) * 2))
+
+// The guest's timebase (mftb). The console's runs at 49.875 MHz from boot; a port that needs real
+// time from it should define this (the raw host counter is the default).
+#ifndef PPC_MFTB
+#define PPC_MFTB() __rdtsc()
+#endif
+
+// Memory barriers. By default they only stop the compiler moving memory accesses across them.
+// PPC_CONFIG_HARDWARE_FENCES (hardware_fences = true) makes sync a full fence (mfence on x64: the one
+// ordering x64 doesn't give for free is a store before a later load) and lwsync/eieio an acquire-
+// release fence (free on x64, dmb on arm64). isync is always a compiler barrier.
+#ifdef PPC_CONFIG_HARDWARE_FENCES
+#ifndef PPC_SYNC
+#define PPC_SYNC() std::atomic_thread_fence(std::memory_order_seq_cst)
+#endif
+#ifndef PPC_LWSYNC
+#define PPC_LWSYNC() std::atomic_thread_fence(std::memory_order_acq_rel)
+#endif
+#ifndef PPC_EIEIO
+#define PPC_EIEIO() std::atomic_thread_fence(std::memory_order_acq_rel)
+#endif
+#endif
+#ifndef PPC_SYNC
+#define PPC_SYNC() std::atomic_signal_fence(std::memory_order_seq_cst)
+#endif
+#ifndef PPC_LWSYNC
+#define PPC_LWSYNC() std::atomic_signal_fence(std::memory_order_seq_cst)
+#endif
+#ifndef PPC_EIEIO
+#define PPC_EIEIO() std::atomic_signal_fence(std::memory_order_seq_cst)
+#endif
+#ifndef PPC_ISYNC
+#define PPC_ISYNC() std::atomic_signal_fence(std::memory_order_seq_cst)
+#endif
+
+// A guest trap instruction (tw/twi/td/tdi) whose condition held: an assert or debug break in the
+// game. Ignored by default, as a retail console without a debugger would crash instead.
+#ifndef PPC_TRAP
+#define PPC_TRAP(address) ((void)0)
+#endif
 
 // Emitted where the recompiler couldn't produce faithful code; both trap by default. A port can
 // define them (before this header) to log the guest addresses first. They must not return.
@@ -119,8 +167,31 @@
 #define PPC_UNIMPLEMENTED(address, what) __builtin_trap()
 #endif
 
+// A switch index past the end of its table. The guest's bounds check rules it out, so by default
+// the compiler may assume it can't happen (the same code as before this macro existed). A port
+// can define it to log the bctr's address and the index if a table's size is in doubt; it should
+// then trap. (If it returns, the recompiled function returns: it never runs on past the switch.)
+#ifndef PPC_SWITCH_MISS
+#define PPC_SWITCH_MISS(address, index) __builtin_unreachable()
+#endif
+
+// An indirect call through an empty table slot (no recompiled function at that address) calls
+// null. Define PPC_CHECK_INDIRECT_CALLS to call PPC_INDIRECT_MISS(address) instead (a branch per
+// call; it traps by default, and a port can define it to log the target first). A port can also
+// fill the empty slots with a stub at load time, which costs nothing per call.
+#ifndef PPC_INDIRECT_MISS
+#define PPC_INDIRECT_MISS(address) __builtin_trap()
+#endif
+
 #ifndef PPC_CALL_INDIRECT_FUNC
+#ifdef PPC_CHECK_INDIRECT_CALLS
+// Out-of-range targets (null, a data pointer) are checked before the table is read.
+#define PPC_CALL_INDIRECT_FUNC(x) \
+    ((uint32_t(x) - uint32_t(PPC_CODE_BASE) < uint32_t(PPC_CODE_SIZE) && (PPC_LOOKUP_FUNC(base, x)) != nullptr) ? \
+        (PPC_LOOKUP_FUNC(base, x))(ctx, base) : PPC_INDIRECT_MISS(uint32_t(x)))
+#else
 #define PPC_CALL_INDIRECT_FUNC(x) (PPC_LOOKUP_FUNC(base, x))(ctx, base)
+#endif
 #endif
 
 typedef void PPCFunc(struct PPCContext& __restrict__ ctx, uint8_t* base);
@@ -696,6 +767,97 @@ inline simde__m128i simde_mm_vsr(simde__m128i a, simde__m128i b)
 {
     b = simde_mm_srli_epi64(simde_mm_slli_epi64(b, 61), 61);
     return simde_mm_castps_si128(simde_mm_insert_ps(simde_mm_castsi128_ps(simde_mm_srl_epi64(a, b)), simde_mm_castsi128_ps(simde_mm_srl_epi64(simde_mm_srli_si128(a, 4), b)), 0x10));
+}
+
+// Estimate instructions as the console computes them (exact_estimates), after Xenia's
+// PpcFrsqrte / PpcVrsqrtefpLane (PowerISA table E-5 and the VMX 32-entry interpolated table).
+inline uint64_t ppc_frsqrte(uint64_t bits)
+{
+    const uint32_t sign = uint32_t(bits >> 63);
+    const uint32_t exp = uint32_t((bits >> 52) & 0x7FF);
+    const uint64_t mantissa = bits & 0x000FFFFFFFFFFFFFULL;
+    if (exp == 0x7FF && mantissa != 0) return bits | (1ULL << 51); // NaN: quieted
+    if (exp == 0 && mantissa == 0) return sign ? 0xFFF0000000000000ULL : 0x7FF0000000000000ULL;
+    if (exp == 0x7FF && !sign) return 0;                            // +inf -> +0
+    if (sign) return 0x7FF8000000000000ULL;                         // negative -> default NaN
+
+    int32_t effectiveExp = int32_t(exp);
+    uint64_t normMantissa = mantissa;
+    if (exp == 0) // denormal: normalise
+    {
+        const int lz = __builtin_clzll(mantissa);
+        normMantissa = mantissa << (lz - 11);
+        effectiveExp = 12 - lz;
+    }
+    static constexpr uint8_t table[] = { 241, 216, 192, 168, 152, 136, 128, 112, 96, 76, 60, 48, 32, 24, 16, 8 };
+    const uint32_t index = (((uint32_t(effectiveExp) & 1) << 3) | (uint32_t(normMantissa >> 49) & 7)) ^ 8;
+    const uint32_t resultExp = uint32_t(1022 - ((effectiveExp - 1023) >> 1));
+    return (uint64_t(resultExp) << 52) | (uint64_t(table[index]) << 44);
+}
+
+inline uint32_t ppc_vrsqrtefp(uint32_t bits)
+{
+    static constexpr uint32_t table[32] = {
+        0x0568B4FD, 0x04F3AF97, 0x048DAAA5, 0x0435A618, 0x03E7A1E4, 0x03A29DFE, 0x03659A5C, 0x032E96F8,
+        0x02FC93CA, 0x02D090CE, 0x02A88DFE, 0x02838B57, 0x026188D4, 0x02438673, 0x02268431, 0x020B820B,
+        0x03D27FFA, 0x03807C29, 0x033878AA, 0x02F97572, 0x02C27279, 0x02926FB7, 0x02666D26, 0x023F6AC0,
+        0x021D6881, 0x01FD6665, 0x01E16468, 0x01C76287, 0x01AF60C1, 0x01995F12, 0x01855D79, 0x01735BF4 };
+    const uint32_t sign = bits >> 31;
+    const uint32_t biasedExp = (bits >> 23) & 0xFF;
+    const uint32_t mantissa = bits & 0x007FFFFF;
+    if (bits == 0xFF800000u) return 0x7FC00000u;                        // -inf -> NaN
+    if (biasedExp == 0) return sign ? 0xFF800000u : 0x7F800000u;        // 0 or denormal (NJ) -> inf
+    if (biasedExp == 255) return mantissa == 0 ? 0 : bits | 0x00400000u; // +inf -> 0, NaN quieted
+    if (sign) return 0x7FC00000u;                                       // negative -> NaN
+
+    const int32_t unbiasedExp = int32_t(biasedExp) - 127;
+    const uint32_t index = ((uint32_t(unbiasedExp << 4) & 16) | (mantissa >> 19)) ^ 16;
+    const uint32_t interp = (mantissa >> 9) & 1023;
+    int32_t resultExp = (127 - int32_t(biasedExp)) >> 1;
+    const uint32_t entry = table[index];
+    int32_t raw = int32_t((entry << 10) & 0x3FFFC00u) - int32_t(interp * (entry >> 16));
+    if (!(raw & (1 << 25)))
+    {
+        const uint32_t value = uint32_t(raw) & 0x1FFFFFF;
+        const int32_t lz = value == 0 ? 32 : __builtin_clz(value);
+        resultExp += 6 - lz;
+        raw <<= (lz - 6);
+    }
+    if ((raw & 5) && (raw & 2))
+        raw += 4;
+    uint32_t result = uint32_t((resultExp << 23) + 0x3F800000) | ((uint32_t(raw) >> 2) & 0x7FFFFF);
+    if (((result >> 23) & 0xFF) == 0 && (result & 0x7FFFFF)) // denormal result flushed (NJ)
+        result = 0;
+    return result;
+}
+
+// vpkd3d128 helpers. Inputs are floats biased so the integer sits in the low mantissa bits
+// (3.0f + n / 2^22); max-then-min against those bounds saturates, and a NaN becomes the minimum.
+inline uint32_t ppc_pack_clamp(float f, uint32_t minBits, uint32_t maxBits)
+{
+    float lo, hi;
+    __builtin_memcpy(&lo, &minBits, 4);
+    __builtin_memcpy(&hi, &maxBits, 4);
+    float t = f > lo ? f : lo;
+    t = t < hi ? t : hi;
+    uint32_t bits;
+    __builtin_memcpy(&bits, &t, 4);
+    return bits;
+}
+
+// float -> Xenos half, as Xenia's emit_fast_f16_pack does it. The Xenos half has no inf or NaN:
+// exponent 31 is an ordinary exponent, so the largest value is 131008 (0x7FFF). Anything at or
+// above 0x47FFE000 (inf and NaN included) saturates to 0x7FFF, anything below the smallest
+// normal half (2^-14) flushes to a signed zero, and the mantissa is truncated.
+inline uint16_t ppc_float_to_xenos_half(float f)
+{
+    uint32_t bits;
+    __builtin_memcpy(&bits, &f, 4);
+    const uint16_t sign = uint16_t((bits >> 16) & 0x8000);
+    const uint32_t a = bits & 0x7FFFFFFF;
+    if (a >= 0x47FFE000) return sign | 0x7FFF;
+    if (a < 0x38800000) return sign;
+    return sign | uint16_t((a - 0x38000000) >> 13);
 }
 
 #if defined(__aarch64__) || defined(_M_ARM64)

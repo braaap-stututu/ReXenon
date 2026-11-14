@@ -1,0 +1,1634 @@
+ReXenon instruction tests (Xenia's src/xenia/cpu/ppc/testing, instr_*.s)
+Generated 2026-11-14 02:06 in 10 s. Rerun: py -I D:\ReXenon\ReXenonTests\run.py
+
+status                all       hand       _GEN
+pass               110259       2099     108160
+fail                27286         64      27222
+unimplemented       32901        647      32254
+compile-failed          2          2          0
+encoder-failed          0          0          0
+skipped                 0          0          0
+total              170448       2812     167636
+
+Encoder: 343842 instruction lines (1360 distinct); 343842 assembled (1 with a range warning);
+  round-trip through ppc::Disassemble: 343842/343842 (100.00%): 343381 same mnemonic and operands, 461 via an alias (disassembles to another spelling that assembles back to the same word); 1360/1360 distinct lines.
+  plus 9 raw .long words. Details: D:\ReXenon\build-tests\rxt\encoder.txt
+  170448 tests share 1791 distinct recompiled functions (identical code is recompiled once).
+
+Instructions with failures (182 of 446 instructions; failing/total tests).
+For value mismatches, [..] says what the test data involves: cr-only (only CR differs),
+NaN or denormal (a NaN/denormal among the test's register values), ordinary (neither).
+  vnmsubfp        11744/15605  fail 11744 [NaN 11520, denormal 126, ordinary 98]
+  fnmadd           3456/3456   unimplemented 3456
+  vmaddfp          2619/15603  fail 2619 [NaN 2304, denormal 190, ordinary 125]
+  fnmsubs          2230/3456   fail 2230 [NaN 2048, cr-only 182]
+  fnmadds          2228/3456   fail 2228 [NaN 2048, cr-only 180]
+  fnmsub           1716/3456   fail 1716 [NaN 1456, cr-only 260]
+  fmsubs           1315/3456   fail 1315 [NaN 864, cr-only 451]
+  fmadds           1313/3460   fail 1313 [NaN 864, cr-only 449]
+  vcmpgtsb         1307/1307   unimplemented 1307
+  vcmpequh         1306/1306   unimplemented 1306
+  vcmpgtsh         1306/1306   unimplemented 1306
+  vcmpgtsw         1306/1306   unimplemented 1306
+  fmsub             801/3456   fail 801 [cr-only 529, NaN 272]
+  fmadd             800/3460   fail 800 [cr-only 528, NaN 272]
+  vrlh              659/659    unimplemented 659
+  vrlw              659/659    unimplemented 659
+  vsrah             659/659    unimplemented 659
+  vrlb              658/658    unimplemented 658
+  vsrab             657/657    unimplemented 657
+  vsrh              657/657    unimplemented 657
+  vsubsbs           657/657    unimplemented 657
+  vadduhs           656/656    unimplemented 656
+  vmaxsh            656/656    unimplemented 656
+  vminsh            656/656    unimplemented 656
+  vslh              656/656    unimplemented 656
+  vsubuhs           656/656    unimplemented 656
+  vsubuws           656/656    unimplemented 656
+  vaddcuw           655/655    unimplemented 655
+  vavgsw            655/655    unimplemented 655
+  vavguh            655/655    unimplemented 655
+  vavguw            655/655    unimplemented 655
+  vmaxsb            655/655    unimplemented 655
+  vmaxuh            655/655    unimplemented 655
+  vminsb            655/655    unimplemented 655
+  vminsw            655/655    unimplemented 655
+  vminuh            655/655    unimplemented 655
+  vpkpx             655/655    unimplemented 655
+  vsubcuw           655/655    unimplemented 655
+  vsubshs           655/655    unimplemented 655
+  vsububm           655/655    unimplemented 655
+  vmaxub            654/654    unimplemented 654
+  vmaxuw            654/654    unimplemented 654
+  vminub            654/654    unimplemented 654
+  vminuw            654/654    unimplemented 654
+  vpkshss           653/653    unimplemented 653
+  vpkuhum           653/653    unimplemented 653
+  vpkuwum           653/653    unimplemented 653
+  vpkuwus           652/652    unimplemented 652
+  vpkswus           651/651    unimplemented 651
+  vpkuhus           651/651    unimplemented 651
+  vsr               454/654    fail 454 [NaN 292, denormal 123, ordinary 39]
+  vsl               422/654    fail 422 [NaN 271, denormal 105, ordinary 46]
+  vmaxfp            249/653    fail 249 [NaN 249]
+  vminfp            244/653    fail 244 [NaN 244]
+  vcmpgtuh          181/1306   fail 181 [cr-only 181]
+  vcmpgtub          152/1306   fail 152 [cr-only 152]
+  fcmpo             148/148    unimplemented 148
+  fmuls             102/288    fail 102 [NaN 72, cr-only 30]
+  fsubs              95/288    fail 95 [NaN 60, cr-only 35]
+  fadds              94/288    fail 94 [NaN 60, cr-only 34]
+  fdivs              85/288    fail 85 [cr-only 49, denormal 20, NaN 16]
+  fdiv               67/288    fail 67 [cr-only 51, NaN 16]
+  vaddfp             48/651    fail 48 [NaN 48]
+  fmul               46/291    fail 46 [cr-only 30, NaN 16]
+  fadd               43/291    fail 43 [cr-only 39, NaN 4]
+  fsub               43/288    fail 43 [cr-only 39, NaN 4]
+  addme              32/32     unimplemented 32
+  vrfip              31/31     unimplemented 31
+  vlogefp            26/31     fail 26 [NaN 16, ordinary 7, denormal 3]
+  fctiw              24/24     unimplemented 24
+  vrsqrtefp          23/31     fail 23 [NaN 12, ordinary 10, denormal 1]
+  addc               22/22     unimplemented 22
+  vrefp              22/31     fail 22 [ordinary 15, NaN 4, denormal 3]
+  rlwnm              19/23     unimplemented 19
+  vpkd3d128          19/28     unimplemented 9, fail 8, compile_failed 2 [ordinary 7, NaN 1]
+  frsqrte            17/27     fail 17 [NaN 6, denormal 4, ordinary 4, cr-only 3]
+  subfme             16/16     unimplemented 16
+  subfze             16/16     unimplemented 16
+  mcrf               14/14     unimplemented 14
+  fsqrts             12/24     fail 12 [NaN 6, denormal 4, cr-only 2]
+  fres               11/24     fail 11 [ordinary 6, cr-only 5]
+  crand              10/10     unimplemented 10
+  crandc             10/10     unimplemented 10
+  creqv              10/10     unimplemented 10
+  crnand             10/10     unimplemented 10
+  crnor              10/10     unimplemented 10
+  cror               10/10     unimplemented 10
+  crorc              10/10     unimplemented 10
+  crxor              10/10     unimplemented 10
+  mulhd              10/10     unimplemented 10
+  rldcl              10/10     unimplemented 10
+  rldcr              10/10     unimplemented 10
+  rldic              10/10     unimplemented 10
+  fsqrt               9/27     fail 9 [NaN 6, cr-only 3]
+  vspltish            8/8      unimplemented 8
+  mulhdx              7/9      unimplemented 4, fail 3 [ordinary 3]
+  addo                6/6      unimplemented 6
+  fctid               6/24     fail 6 [cr-only 6]
+  fctidz              6/24     fail 6 [cr-only 6]
+  fctiwz              6/24     fail 6 [cr-only 6]
+  addx                5/9      unimplemented 5
+  divwo               5/5      unimplemented 5
+  mtfsb               5/5      unimplemented 5
+  mullwo              5/5      unimplemented 5
+  vrefp128            5/5      fail 5 [ordinary 5]
+  vrfip128            5/5      unimplemented 5
+  vrsqrtefp128        5/5      fail 5 [ordinary 5]
+  divdx               4/10     fail 4 [ordinary 4]
+  fctiwx              4/4      unimplemented 4
+  fnmaddx             4/4      unimplemented 4
+  fresx               4/4      fail 4 [ordinary 4]
+  frsp                4/24     fail 4 [cr-only 4]
+  frsqrtex            4/4      fail 4 [ordinary 4]
+  icbi                4/4      unimplemented 4
+  lhau                4/4      unimplemented 4
+  lhzu                4/4      unimplemented 4
+  lvexx               4/16     unimplemented 4
+  mffsx               4/4      fail 4 [NaN 4]
+  mtfsfix             4/4      unimplemented 4
+  mulldx              4/6      fail 4 [ordinary 4]
+  rldclx              4/4      unimplemented 4
+  rldcrx              4/4      unimplemented 4
+  rldicx              4/4      unimplemented 4
+  stvebx              4/4      unimplemented 4
+  lvsl128             3/3      unimplemented 3
+  lvsr128             3/3      unimplemented 3
+  mcrxr               3/3      unimplemented 3
+  nego                3/3      unimplemented 3
+  rlwnmx              3/4      unimplemented 3
+  subfx               3/9      unimplemented 3
+  vpkshss128          3/3      unimplemented 3
+  vpkswss128          3/3      unimplemented 3
+  vpkuhum128          3/3      unimplemented 3
+  vpkuwum128          3/3      unimplemented 3
+  lbzu                2/4      unimplemented 2
+  ldu                 2/4      unimplemented 2
+  lfd                 2/5      unimplemented 2
+  lfs                 2/5      unimplemented 2
+  lha                 2/5      unimplemented 2
+  lhz                 2/5      unimplemented 2
+  lmw                 2/2      unimplemented 2
+  lvxl128             2/2      unimplemented 2
+  lwzu                2/4      unimplemented 2
+  lxbrx               2/6      unimplemented 2
+  mcrfs               2/2      unimplemented 2
+  mfmsr               2/2      fail 2 [ordinary 2]
+  mfspr               2/3      unimplemented 2
+  mfvscr              2/2      unimplemented 2
+  mtcrf               2/3      unimplemented 2
+  mtmsr               2/2      unimplemented 2
+  mtspr               2/3      unimplemented 2
+  stfd                2/5      unimplemented 2
+  stfs                2/5      unimplemented 2
+  sth                 2/5      unimplemented 2
+  sthbrx              2/6      unimplemented 2
+  stmw                2/2      unimplemented 2
+  stvlxl128           2/2      unimplemented 2
+  stvrxl128           2/2      unimplemented 2
+  stvxl128            2/2      unimplemented 2
+  stwcx               2/4      fail 2 [ordinary 2]
+  vexptefp            2/27     fail 2 [ordinary 2]
+  vmsum3fp128         2/3      fail 2 [ordinary 2]
+  vmsum4fp128         2/3      fail 2 [ordinary 2]
+  vpkuwus128          2/2      unimplemented 2
+  addeo               1/1      unimplemented 1
+  lbz                 1/6      unimplemented 1
+  ld                  1/5      unimplemented 1
+  lvlxl128            1/1      unimplemented 1
+  lvrxl128            1/1      unimplemented 1
+  lvx_permute         1/7      unimplemented 1
+  lwa                 1/5      unimplemented 1
+  lwz                 1/5      unimplemented 1
+  stb                 1/5      unimplemented 1
+  std                 1/5      unimplemented 1
+  subfco              1/1      unimplemented 1
+  vexptefp128         1/5      fail 1 [ordinary 1]
+  vlogefp128          1/5      fail 1 [ordinary 1]
+  vpkswus128          1/1      unimplemented 1
+  vpkuhus128          1/1      unimplemented 1
+  vrlw128             1/1      unimplemented 1
+  vslo128             1/1      unimplemented 1
+  vsro128             1/1      unimplemented 1
+
+Recompiler warnings 'RC bit enabled but no comparison was generated' (no cr0/cr6 write; the FP
+forms set cr1, which the check doesn't look for), by mnemonic: clrldi., cntlzd., cntlzw., divd., fabs., fadd., fadds., fcfid., fctid., fctidz., fctiwz., fdiv., fdivs., fmadd., fmadds., fmr., fmsub., fmsubs., fmul., fmuls., fnabs., fneg., fnmadds., fnmsub., fnmsubs., fres., frsp., frsqrte., fsel., fsqrt., fsqrts., fsub., fsubs., mffs., mtfsf., mulhdu., mulhw., mulld., nand., orc., rldicl., rldicr., rldimi., rlwimi., rotlw., sld., srad., sradi., srd., vcmpgtub., vcmpgtuh.
+
+Failures by instruction (each group: signature, count, examples; every test in results_all.tsv):
+
+== vnmsubfp: 11744 of 15605 failing
+  [fail] mismatch in v4: 11744
+      instr__gen_vnmsubfp:vnmsubfp_1_GEN  v4 expected [80000000, FFFF0000, 80000000, FFFF0000] actual [80000000, 7FFF0000, 80000000, 7FFF0000]
+      instr__gen_vnmsubfp:vnmsubfp_5_GEN  v4 expected [00FFFF00, 80000000, FF0000FF, FFFF00FF] actual [00FFFF00, 80000000, FF0000FF, 7FFF00FF]
+      instr__gen_vnmsubfp:vnmsubfp_13_GEN  v4 expected [7FC00203, 04050607, 7FC00A0B, 0C0D0E0F] actual [FFC00203, 04050607, FFC00A0B, 0C0D0E0F]
+      ... 11741 more
+
+== fnmadd: 3456 of 3456 failing
+  [unimplemented] unimplemented fnmadd: 1728
+      instr__gen_fnmadd:fnmadd_1_GEN  unimplemented fnmadd at 0x82010000
+      instr__gen_fnmadd:fnmadd_2_GEN  unimplemented fnmadd at 0x82010000
+      instr__gen_fnmadd:fnmadd_3_GEN  unimplemented fnmadd at 0x82010000
+      ... 1725 more
+  [unimplemented] unimplemented fnmadd.: 1728
+      instr__gen_fnmadd:fnmadd_1_cr_GEN  unimplemented fnmadd. at 0x82010008
+      instr__gen_fnmadd:fnmadd_2_cr_GEN  unimplemented fnmadd. at 0x82010008
+      instr__gen_fnmadd:fnmadd_3_cr_GEN  unimplemented fnmadd. at 0x82010008
+      ... 1725 more
+
+== vmaddfp: 2619 of 15603 failing
+  [fail] mismatch in v4: 2618
+      instr__gen_vmaddfp:vmaddfp_29_GEN  v4 expected [00FFFF00, FFFF0000, FF0000FF, FFFF00FF] actual [00FFFF00, FFFF0000, FF0000FF, FFFF0000]
+      instr__gen_vmaddfp:vmaddfp_44_GEN  v4 expected [FFFCFFFD, FFFEFFFF, 00000000, FFFF0000] actual [FFFCFFFD, FFFF0000, 00000000, FFFF0000]
+      instr__gen_vmaddfp:vmaddfp_48_GEN  v4 expected [FFFFFFFF, FFFFFFFF, FFFFFFFF, FFFFFFFF] actual [FFFFFFFF, FFFF0000, FFFFFFFF, FFFF0000]
+      ... 2615 more
+  [fail] mismatch in v3: 1
+      instr_vmaddfp:vmaddfp_1  v3 expected [40000000, 40700000, 4013D70B, 40B051EB] actual [40000000, 40700000, 4013D70A, 40B051EB]
+
+== fnmsubs: 2230 of 3456 failing
+  [fail] mismatch in f4: 1643
+      instr__gen_fnmsubs:fnmsubs_3_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fnmsubs:fnmsubs_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fnmsubs:fnmsubs_4_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 1640 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmsubs:fnmsubs_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 182
+      instr__gen_fnmsubs:fnmsubs_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmsubs:fnmsubs_56_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 179 more
+
+== fnmadds: 2228 of 3456 failing
+  [fail] mismatch in f4: 1643
+      instr__gen_fnmadds:fnmadds_3_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fnmadds:fnmadds_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fnmadds:fnmadds_4_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      ... 1640 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmadds:fnmadds_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 180
+      instr__gen_fnmadds:fnmadds_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fnmadds:fnmadds_56_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 177 more
+
+== fnmsub: 1716 of 3456 failing
+  [fail] mismatch in f4: 1051
+      instr__gen_fnmsub:fnmsub_11_GEN  f4 expected 0xFFF8000000000000 actual 0x7FF8000000000000
+      instr__gen_fnmsub:fnmsub_11_cr_GEN  f4 expected 0xFFF8000000000000 actual 0x7FF8000000000000
+      instr__gen_fnmsub:fnmsub_12_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000
+      ... 1048 more
+  [fail] mismatch in cr,f4: 405
+      instr__gen_fnmsub:fnmsub_12_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_24_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_36_cr_GEN  f4 expected 0xFFFC000000000000 actual 0x7FFC000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 402 more
+  [fail] mismatch in cr: 260
+      instr__gen_fnmsub:fnmsub_97_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_98_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fnmsub:fnmsub_99_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 257 more
+
+== fmsubs: 1315 of 3456 failing
+  [fail] mismatch in f4: 728
+      instr__gen_fmsubs:fmsubs_3_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fmsubs:fmsubs_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fmsubs:fmsubs_4_GEN  f4 expected 0x7FF8000000000000 actual 0x8000000000000000
+      ... 725 more
+  [fail] mismatch in cr: 451
+      instr__gen_fmsubs:fmsubs_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 448 more
+  [fail] mismatch in cr,f4: 136
+      instr__gen_fmsubs:fmsubs_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsubs:fmsubs_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 133 more
+
+== fmadds: 1313 of 3460 failing
+  [fail] mismatch in f4: 728
+      instr__gen_fmadds:fmadds_3_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmadds:fmadds_3_cr_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmadds:fmadds_4_GEN  f4 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 725 more
+  [fail] mismatch in cr: 449
+      instr__gen_fmadds:fmadds_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 446 more
+  [fail] mismatch in cr,f4: 136
+      instr__gen_fmadds:fmadds_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadds:fmadds_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 133 more
+
+== vcmpgtsb: 1307 of 1307 failing
+  [unimplemented] unimplemented vcmpgtsb: 657
+      instr__gen_vcmpgtsb:vcmpgtsb_1_GEN  unimplemented vcmpgtsb at 0x82010000
+      instr__gen_vcmpgtsb:vcmpgtsb_2_GEN  unimplemented vcmpgtsb at 0x82010000
+      instr__gen_vcmpgtsb:vcmpgtsb_3_GEN  unimplemented vcmpgtsb at 0x82010000
+      ... 654 more
+  [unimplemented] unimplemented vcmpgtsb.: 650
+      instr__gen_vcmpgtsb:vcmpgtsb_1_cr_GEN  unimplemented vcmpgtsb. at 0x82010008
+      instr__gen_vcmpgtsb:vcmpgtsb_2_cr_GEN  unimplemented vcmpgtsb. at 0x82010008
+      instr__gen_vcmpgtsb:vcmpgtsb_3_cr_GEN  unimplemented vcmpgtsb. at 0x82010008
+      ... 647 more
+
+== vcmpequh: 1306 of 1306 failing
+  [unimplemented] unimplemented vcmpequh: 656
+      instr__gen_vcmpequh:vcmpequh_1_GEN  unimplemented vcmpequh at 0x82010000
+      instr__gen_vcmpequh:vcmpequh_2_GEN  unimplemented vcmpequh at 0x82010000
+      instr__gen_vcmpequh:vcmpequh_3_GEN  unimplemented vcmpequh at 0x82010000
+      ... 653 more
+  [unimplemented] unimplemented vcmpequh.: 650
+      instr__gen_vcmpequh:vcmpequh_1_cr_GEN  unimplemented vcmpequh. at 0x82010008
+      instr__gen_vcmpequh:vcmpequh_2_cr_GEN  unimplemented vcmpequh. at 0x82010008
+      instr__gen_vcmpequh:vcmpequh_3_cr_GEN  unimplemented vcmpequh. at 0x82010008
+      ... 647 more
+
+== vcmpgtsh: 1306 of 1306 failing
+  [unimplemented] unimplemented vcmpgtsh: 656
+      instr__gen_vcmpgtsh:vcmpgtsh_1_GEN  unimplemented vcmpgtsh at 0x82010000
+      instr__gen_vcmpgtsh:vcmpgtsh_2_GEN  unimplemented vcmpgtsh at 0x82010000
+      instr__gen_vcmpgtsh:vcmpgtsh_3_GEN  unimplemented vcmpgtsh at 0x82010000
+      ... 653 more
+  [unimplemented] unimplemented vcmpgtsh.: 650
+      instr__gen_vcmpgtsh:vcmpgtsh_1_cr_GEN  unimplemented vcmpgtsh. at 0x82010008
+      instr__gen_vcmpgtsh:vcmpgtsh_2_cr_GEN  unimplemented vcmpgtsh. at 0x82010008
+      instr__gen_vcmpgtsh:vcmpgtsh_3_cr_GEN  unimplemented vcmpgtsh. at 0x82010008
+      ... 647 more
+
+== vcmpgtsw: 1306 of 1306 failing
+  [unimplemented] unimplemented vcmpgtsw: 656
+      instr__gen_vcmpgtsw:vcmpgtsw_1_GEN  unimplemented vcmpgtsw at 0x82010000
+      instr__gen_vcmpgtsw:vcmpgtsw_2_GEN  unimplemented vcmpgtsw at 0x82010000
+      instr__gen_vcmpgtsw:vcmpgtsw_3_GEN  unimplemented vcmpgtsw at 0x82010000
+      ... 653 more
+  [unimplemented] unimplemented vcmpgtsw.: 650
+      instr__gen_vcmpgtsw:vcmpgtsw_1_cr_GEN  unimplemented vcmpgtsw. at 0x82010008
+      instr__gen_vcmpgtsw:vcmpgtsw_2_cr_GEN  unimplemented vcmpgtsw. at 0x82010008
+      instr__gen_vcmpgtsw:vcmpgtsw_3_cr_GEN  unimplemented vcmpgtsw. at 0x82010008
+      ... 647 more
+
+== fmsub: 801 of 3456 failing
+  [fail] mismatch in cr: 529
+      instr__gen_fmsub:fmsub_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_36_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 526 more
+  [fail] mismatch in f4: 136
+      instr__gen_fmsub:fmsub_97_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmsub:fmsub_98_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmsub:fmsub_99_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 133 more
+  [fail] mismatch in cr,f4: 136
+      instr__gen_fmsub:fmsub_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmsub:fmsub_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 133 more
+
+== fmadd: 800 of 3460 failing
+  [fail] mismatch in cr: 528
+      instr__gen_fmadd:fmadd_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_36_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 525 more
+  [fail] mismatch in f4: 136
+      instr__gen_fmadd:fmadd_97_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmadd:fmadd_98_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmadd:fmadd_99_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 133 more
+  [fail] mismatch in cr,f4: 136
+      instr__gen_fmadd:fmadd_97_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_98_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmadd:fmadd_99_cr_GEN  f4 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 133 more
+
+== vrlh: 659 of 659 failing
+  [unimplemented] unimplemented vrlh: 659
+      instr__gen_vrlh:vrlh_1_GEN  unimplemented vrlh at 0x82010000
+      instr__gen_vrlh:vrlh_2_GEN  unimplemented vrlh at 0x82010000
+      instr__gen_vrlh:vrlh_3_GEN  unimplemented vrlh at 0x82010000
+      ... 656 more
+
+== vrlw: 659 of 659 failing
+  [unimplemented] unimplemented vrlw: 659
+      instr__gen_vrlw:vrlw_1_GEN  unimplemented vrlw at 0x82010000
+      instr__gen_vrlw:vrlw_2_GEN  unimplemented vrlw at 0x82010000
+      instr__gen_vrlw:vrlw_3_GEN  unimplemented vrlw at 0x82010000
+      ... 656 more
+
+== vsrah: 659 of 659 failing
+  [unimplemented] unimplemented vsrah: 659
+      instr__gen_vsrah:vsrah_1_GEN  unimplemented vsrah at 0x82010000
+      instr__gen_vsrah:vsrah_2_GEN  unimplemented vsrah at 0x82010000
+      instr__gen_vsrah:vsrah_3_GEN  unimplemented vsrah at 0x82010000
+      ... 656 more
+
+== vrlb: 658 of 658 failing
+  [unimplemented] unimplemented vrlb: 658
+      instr__gen_vrlb:vrlb_1_GEN  unimplemented vrlb at 0x82010000
+      instr__gen_vrlb:vrlb_2_GEN  unimplemented vrlb at 0x82010000
+      instr__gen_vrlb:vrlb_3_GEN  unimplemented vrlb at 0x82010000
+      ... 655 more
+
+== vsrab: 657 of 657 failing
+  [unimplemented] unimplemented vsrab: 657
+      instr__gen_vsrab:vsrab_1_GEN  unimplemented vsrab at 0x82010000
+      instr__gen_vsrab:vsrab_2_GEN  unimplemented vsrab at 0x82010000
+      instr__gen_vsrab:vsrab_3_GEN  unimplemented vsrab at 0x82010000
+      ... 654 more
+
+== vsrh: 657 of 657 failing
+  [unimplemented] unimplemented vsrh: 657
+      instr__gen_vsrh:vsrh_1_GEN  unimplemented vsrh at 0x82010000
+      instr__gen_vsrh:vsrh_2_GEN  unimplemented vsrh at 0x82010000
+      instr__gen_vsrh:vsrh_3_GEN  unimplemented vsrh at 0x82010000
+      ... 654 more
+
+== vsubsbs: 657 of 657 failing
+  [unimplemented] unimplemented vsubsbs: 657
+      instr__gen_vsubsbs:vsubsbs_1_GEN  unimplemented vsubsbs at 0x82010000
+      instr__gen_vsubsbs:vsubsbs_2_GEN  unimplemented vsubsbs at 0x82010000
+      instr__gen_vsubsbs:vsubsbs_3_GEN  unimplemented vsubsbs at 0x82010000
+      ... 654 more
+
+== vadduhs: 656 of 656 failing
+  [unimplemented] unimplemented vadduhs: 656
+      instr__gen_vadduhs:vadduhs_1_GEN  unimplemented vadduhs at 0x82010000
+      instr__gen_vadduhs:vadduhs_2_GEN  unimplemented vadduhs at 0x82010000
+      instr__gen_vadduhs:vadduhs_3_GEN  unimplemented vadduhs at 0x82010000
+      ... 653 more
+
+== vmaxsh: 656 of 656 failing
+  [unimplemented] unimplemented vmaxsh: 656
+      instr__gen_vmaxsh:vmaxsh_1_GEN  unimplemented vmaxsh at 0x82010000
+      instr__gen_vmaxsh:vmaxsh_2_GEN  unimplemented vmaxsh at 0x82010000
+      instr__gen_vmaxsh:vmaxsh_3_GEN  unimplemented vmaxsh at 0x82010000
+      ... 653 more
+
+== vminsh: 656 of 656 failing
+  [unimplemented] unimplemented vminsh: 656
+      instr__gen_vminsh:vminsh_1_GEN  unimplemented vminsh at 0x82010000
+      instr__gen_vminsh:vminsh_2_GEN  unimplemented vminsh at 0x82010000
+      instr__gen_vminsh:vminsh_3_GEN  unimplemented vminsh at 0x82010000
+      ... 653 more
+
+== vslh: 656 of 656 failing
+  [unimplemented] unimplemented vslh: 656
+      instr__gen_vslh:vslh_1_GEN  unimplemented vslh at 0x82010000
+      instr__gen_vslh:vslh_2_GEN  unimplemented vslh at 0x82010000
+      instr__gen_vslh:vslh_3_GEN  unimplemented vslh at 0x82010000
+      ... 653 more
+
+== vsubuhs: 656 of 656 failing
+  [unimplemented] unimplemented vsubuhs: 656
+      instr__gen_vsubuhs:vsubuhs_1_GEN  unimplemented vsubuhs at 0x82010000
+      instr__gen_vsubuhs:vsubuhs_2_GEN  unimplemented vsubuhs at 0x82010000
+      instr__gen_vsubuhs:vsubuhs_3_GEN  unimplemented vsubuhs at 0x82010000
+      ... 653 more
+
+== vsubuws: 656 of 656 failing
+  [unimplemented] unimplemented vsubuws: 656
+      instr__gen_vsubuws:vsubuws_1_GEN  unimplemented vsubuws at 0x82010000
+      instr__gen_vsubuws:vsubuws_2_GEN  unimplemented vsubuws at 0x82010000
+      instr__gen_vsubuws:vsubuws_3_GEN  unimplemented vsubuws at 0x82010000
+      ... 653 more
+
+== vaddcuw: 655 of 655 failing
+  [unimplemented] unimplemented vaddcuw: 655
+      instr__gen_vaddcuw:vaddcuw_1_GEN  unimplemented vaddcuw at 0x82010000
+      instr__gen_vaddcuw:vaddcuw_2_GEN  unimplemented vaddcuw at 0x82010000
+      instr__gen_vaddcuw:vaddcuw_3_GEN  unimplemented vaddcuw at 0x82010000
+      ... 652 more
+
+== vavgsw: 655 of 655 failing
+  [unimplemented] unimplemented vavgsw: 655
+      instr__gen_vavgsw:vavgsw_1_GEN  unimplemented vavgsw at 0x82010000
+      instr__gen_vavgsw:vavgsw_2_GEN  unimplemented vavgsw at 0x82010000
+      instr__gen_vavgsw:vavgsw_3_GEN  unimplemented vavgsw at 0x82010000
+      ... 652 more
+
+== vavguh: 655 of 655 failing
+  [unimplemented] unimplemented vavguh: 655
+      instr__gen_vavguh:vavguh_1_GEN  unimplemented vavguh at 0x82010000
+      instr__gen_vavguh:vavguh_2_GEN  unimplemented vavguh at 0x82010000
+      instr__gen_vavguh:vavguh_3_GEN  unimplemented vavguh at 0x82010000
+      ... 652 more
+
+== vavguw: 655 of 655 failing
+  [unimplemented] unimplemented vavguw: 655
+      instr__gen_vavguw:vavguw_1_GEN  unimplemented vavguw at 0x82010000
+      instr__gen_vavguw:vavguw_2_GEN  unimplemented vavguw at 0x82010000
+      instr__gen_vavguw:vavguw_3_GEN  unimplemented vavguw at 0x82010000
+      ... 652 more
+
+== vmaxsb: 655 of 655 failing
+  [unimplemented] unimplemented vmaxsb: 655
+      instr__gen_vmaxsb:vmaxsb_1_GEN  unimplemented vmaxsb at 0x82010000
+      instr__gen_vmaxsb:vmaxsb_2_GEN  unimplemented vmaxsb at 0x82010000
+      instr__gen_vmaxsb:vmaxsb_3_GEN  unimplemented vmaxsb at 0x82010000
+      ... 652 more
+
+== vmaxuh: 655 of 655 failing
+  [unimplemented] unimplemented vmaxuh: 655
+      instr__gen_vmaxuh:vmaxuh_1_GEN  unimplemented vmaxuh at 0x82010000
+      instr__gen_vmaxuh:vmaxuh_2_GEN  unimplemented vmaxuh at 0x82010000
+      instr__gen_vmaxuh:vmaxuh_3_GEN  unimplemented vmaxuh at 0x82010000
+      ... 652 more
+
+== vminsb: 655 of 655 failing
+  [unimplemented] unimplemented vminsb: 655
+      instr__gen_vminsb:vminsb_1_GEN  unimplemented vminsb at 0x82010000
+      instr__gen_vminsb:vminsb_2_GEN  unimplemented vminsb at 0x82010000
+      instr__gen_vminsb:vminsb_3_GEN  unimplemented vminsb at 0x82010000
+      ... 652 more
+
+== vminsw: 655 of 655 failing
+  [unimplemented] unimplemented vminsw: 655
+      instr__gen_vminsw:vminsw_1_GEN  unimplemented vminsw at 0x82010000
+      instr__gen_vminsw:vminsw_2_GEN  unimplemented vminsw at 0x82010000
+      instr__gen_vminsw:vminsw_3_GEN  unimplemented vminsw at 0x82010000
+      ... 652 more
+
+== vminuh: 655 of 655 failing
+  [unimplemented] unimplemented vminuh: 655
+      instr__gen_vminuh:vminuh_1_GEN  unimplemented vminuh at 0x82010000
+      instr__gen_vminuh:vminuh_2_GEN  unimplemented vminuh at 0x82010000
+      instr__gen_vminuh:vminuh_3_GEN  unimplemented vminuh at 0x82010000
+      ... 652 more
+
+== vpkpx: 655 of 655 failing
+  [unimplemented] unimplemented vpkpx: 655
+      instr__gen_vpkpx:vpkpx_1_GEN  unimplemented vpkpx at 0x82010000
+      instr__gen_vpkpx:vpkpx_2_GEN  unimplemented vpkpx at 0x82010000
+      instr__gen_vpkpx:vpkpx_3_GEN  unimplemented vpkpx at 0x82010000
+      ... 652 more
+
+== vsubcuw: 655 of 655 failing
+  [unimplemented] unimplemented vsubcuw: 655
+      instr__gen_vsubcuw:vsubcuw_1_GEN  unimplemented vsubcuw at 0x82010000
+      instr__gen_vsubcuw:vsubcuw_2_GEN  unimplemented vsubcuw at 0x82010000
+      instr__gen_vsubcuw:vsubcuw_3_GEN  unimplemented vsubcuw at 0x82010000
+      ... 652 more
+
+== vsubshs: 655 of 655 failing
+  [unimplemented] unimplemented vsubshs: 655
+      instr__gen_vsubshs:vsubshs_1_GEN  unimplemented vsubshs at 0x82010000
+      instr__gen_vsubshs:vsubshs_2_GEN  unimplemented vsubshs at 0x82010000
+      instr__gen_vsubshs:vsubshs_3_GEN  unimplemented vsubshs at 0x82010000
+      ... 652 more
+
+== vsububm: 655 of 655 failing
+  [unimplemented] unimplemented vsububm: 655
+      instr__gen_vsububm:vsububm_1_GEN  unimplemented vsububm at 0x82010000
+      instr__gen_vsububm:vsububm_2_GEN  unimplemented vsububm at 0x82010000
+      instr__gen_vsububm:vsububm_3_GEN  unimplemented vsububm at 0x82010000
+      ... 652 more
+
+== vmaxub: 654 of 654 failing
+  [unimplemented] unimplemented vmaxub: 654
+      instr__gen_vmaxub:vmaxub_1_GEN  unimplemented vmaxub at 0x82010000
+      instr__gen_vmaxub:vmaxub_2_GEN  unimplemented vmaxub at 0x82010000
+      instr__gen_vmaxub:vmaxub_3_GEN  unimplemented vmaxub at 0x82010000
+      ... 651 more
+
+== vmaxuw: 654 of 654 failing
+  [unimplemented] unimplemented vmaxuw: 654
+      instr__gen_vmaxuw:vmaxuw_1_GEN  unimplemented vmaxuw at 0x82010000
+      instr__gen_vmaxuw:vmaxuw_2_GEN  unimplemented vmaxuw at 0x82010000
+      instr__gen_vmaxuw:vmaxuw_3_GEN  unimplemented vmaxuw at 0x82010000
+      ... 651 more
+
+== vminub: 654 of 654 failing
+  [unimplemented] unimplemented vminub: 654
+      instr__gen_vminub:vminub_1_GEN  unimplemented vminub at 0x82010000
+      instr__gen_vminub:vminub_2_GEN  unimplemented vminub at 0x82010000
+      instr__gen_vminub:vminub_3_GEN  unimplemented vminub at 0x82010000
+      ... 651 more
+
+== vminuw: 654 of 654 failing
+  [unimplemented] unimplemented vminuw: 654
+      instr__gen_vminuw:vminuw_1_GEN  unimplemented vminuw at 0x82010000
+      instr__gen_vminuw:vminuw_2_GEN  unimplemented vminuw at 0x82010000
+      instr__gen_vminuw:vminuw_3_GEN  unimplemented vminuw at 0x82010000
+      ... 651 more
+
+== vpkshss: 653 of 653 failing
+  [unimplemented] unimplemented vpkshss: 653
+      instr__gen_vpkshss:vpkshss_1_GEN  unimplemented vpkshss at 0x82010000
+      instr__gen_vpkshss:vpkshss_2_GEN  unimplemented vpkshss at 0x82010000
+      instr__gen_vpkshss:vpkshss_3_GEN  unimplemented vpkshss at 0x82010000
+      ... 650 more
+
+== vpkuhum: 653 of 653 failing
+  [unimplemented] unimplemented vpkuhum: 653
+      instr__gen_vpkuhum:vpkuhum_1_GEN  unimplemented vpkuhum at 0x82010000
+      instr__gen_vpkuhum:vpkuhum_2_GEN  unimplemented vpkuhum at 0x82010000
+      instr__gen_vpkuhum:vpkuhum_3_GEN  unimplemented vpkuhum at 0x82010000
+      ... 650 more
+
+== vpkuwum: 653 of 653 failing
+  [unimplemented] unimplemented vpkuwum: 653
+      instr__gen_vpkuwum:vpkuwum_1_GEN  unimplemented vpkuwum at 0x82010000
+      instr__gen_vpkuwum:vpkuwum_2_GEN  unimplemented vpkuwum at 0x82010000
+      instr__gen_vpkuwum:vpkuwum_3_GEN  unimplemented vpkuwum at 0x82010000
+      ... 650 more
+
+== vpkuwus: 652 of 652 failing
+  [unimplemented] unimplemented vpkuwus: 652
+      instr__gen_vpkuwus:vpkuwus_1_GEN  unimplemented vpkuwus at 0x82010000
+      instr__gen_vpkuwus:vpkuwus_2_GEN  unimplemented vpkuwus at 0x82010000
+      instr__gen_vpkuwus:vpkuwus_3_GEN  unimplemented vpkuwus at 0x82010000
+      ... 649 more
+
+== vpkswus: 651 of 651 failing
+  [unimplemented] unimplemented vpkswus: 651
+      instr__gen_vpkswus:vpkswus_1_GEN  unimplemented vpkswus at 0x82010000
+      instr__gen_vpkswus:vpkswus_2_GEN  unimplemented vpkswus at 0x82010000
+      instr__gen_vpkswus:vpkswus_3_GEN  unimplemented vpkswus at 0x82010000
+      ... 648 more
+
+== vpkuhus: 651 of 651 failing
+  [unimplemented] unimplemented vpkuhus: 651
+      instr__gen_vpkuhus:vpkuhus_1_GEN  unimplemented vpkuhus at 0x82010000
+      instr__gen_vpkuhus:vpkuhus_2_GEN  unimplemented vpkuhus at 0x82010000
+      instr__gen_vpkuhus:vpkuhus_3_GEN  unimplemented vpkuhus at 0x82010000
+      ... 648 more
+
+== vsr: 454 of 654 failing
+  [fail] mismatch in v3: 454
+      instr__gen_vsr:vsr_27_GEN  v3 expected [00000000, 02000001, 00000001, 02000001] actual [00000001, 00000001, 00000001, 00000001]
+      instr__gen_vsr:vsr_28_GEN  v3 expected [00000000, 10000000, 00000000, 10000000] actual [00000000, 02000000, 02000000, 02000000]
+      instr__gen_vsr:vsr_29_GEN  v3 expected [00000000, 00000000, 00000000, 00000000] actual [00000000, 08000000, 08000000, 08000000]
+      ... 451 more
+
+== vsl: 422 of 654 failing
+  [fail] mismatch in v3: 422
+      instr__gen_vsl:vsl_27_GEN  v3 expected [00000080, 00000001, 00000001, 00000001] actual [00000001, 00000001, 00000001, 00000001]
+      instr__gen_vsl:vsl_28_GEN  v3 expected [00000008, 00000080, 00000008, 00000080] actual [00000080, 00000080, 00000080, 00000080]
+      instr__gen_vsl:vsl_30_GEN  v3 expected [00000008, 00000080, 00000008, 00000080] actual [00000080, 00000080, 00000080, 00000080]
+      ... 419 more
+
+== vmaxfp: 249 of 653 failing
+  [fail] mismatch in v3: 249
+      instr__gen_vmaxfp:vmaxfp_14_GEN  v3 expected [7FC00203, 04050607, 7FC00A0B, 0C0D0E0F] actual [7F800203, 04050607, 7F800A0B, 0C0D0E0F]
+      instr__gen_vmaxfp:vmaxfp_15_GEN  v3 expected [00000000, 00000000, 7FFFFFFF, 00000000] actual [80000000, 00000000, 7FFFFFFF, 00000000]
+      instr__gen_vmaxfp:vmaxfp_39_GEN  v3 expected [7FC00203, 04050607, 7FC00A0B, 0C0D0E0F] actual [7F800203, 04050607, 7F800A0B, 0C0D0E0F]
+      ... 246 more
+
+== vminfp: 244 of 653 failing
+  [fail] mismatch in v3: 244
+      instr__gen_vminfp:vminfp_14_GEN  v3 expected [7FC00203, 00000000, 7FC00A0B, 00000000] actual [7F800203, 00000000, 7F800A0B, 00000000]
+      instr__gen_vminfp:vminfp_39_GEN  v3 expected [7FC00203, 00000000, 7FC00A0B, 00000000] actual [7F800203, 00000000, 7F800A0B, 00000000]
+      instr__gen_vminfp:vminfp_51_GEN  v3 expected [00000000, FFFF0000, 00000000, FFFF0000] actual [00000000, 00000000, 00000000, 00000000]
+      ... 241 more
+
+== vcmpgtuh: 181 of 1306 failing
+  [fail] mismatch in cr: 181
+      instr__gen_vcmpgtuh:vcmpgtuh_1_cr_GEN  cr expected 0x00000020 actual 0x00000000
+      instr__gen_vcmpgtuh:vcmpgtuh_2_cr_GEN  cr expected 0x00000020 actual 0x00000000
+      instr__gen_vcmpgtuh:vcmpgtuh_3_cr_GEN  cr expected 0x00000020 actual 0x00000000
+      ... 178 more
+
+== vcmpgtub: 152 of 1306 failing
+  [fail] mismatch in cr: 152
+      instr__gen_vcmpgtub:vcmpgtub_1_cr_GEN  cr expected 0x00000020 actual 0x00000000
+      instr__gen_vcmpgtub:vcmpgtub_2_cr_GEN  cr expected 0x00000020 actual 0x00000000
+      instr__gen_vcmpgtub:vcmpgtub_3_cr_GEN  cr expected 0x00000020 actual 0x00000000
+      ... 149 more
+
+== fcmpo: 148 of 148 failing
+  [unimplemented] unimplemented fcmpo: 148
+      instr__gen_fcmpo:fcmpo_1_GEN  unimplemented fcmpo at 0x82010000
+      instr__gen_fcmpo:fcmpo_2_GEN  unimplemented fcmpo at 0x82010000
+      instr__gen_fcmpo:fcmpo_3_GEN  unimplemented fcmpo at 0x82010000
+      ... 145 more
+
+== fmuls: 102 of 288 failing
+  [fail] mismatch in f3: 64
+      instr__gen_fmuls:fmuls_3_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmuls:fmuls_3_cr_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fmuls:fmuls_4_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 61 more
+  [fail] mismatch in cr: 30
+      instr__gen_fmuls:fmuls_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_36_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 27 more
+  [fail] mismatch in cr,f3: 8
+      instr__gen_fmuls:fmuls_9_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_10_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmuls:fmuls_21_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 5 more
+
+== fsubs: 95 of 288 failing
+  [fail] mismatch in f3: 58
+      instr__gen_fsubs:fsubs_3_GEN  f3 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fsubs:fsubs_3_cr_GEN  f3 expected 0x7FF8000000000000 actual 0x8000000000000000
+      instr__gen_fsubs:fsubs_4_GEN  f3 expected 0x7FF8000000000000 actual 0x8000000000000000
+      ... 55 more
+  [fail] mismatch in cr: 35
+      instr__gen_fsubs:fsubs_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsubs:fsubs_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsubs:fsubs_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 32 more
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fsubs:fsubs_105_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsubs:fsubs_118_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fadds: 94 of 288 failing
+  [fail] mismatch in f3: 58
+      instr__gen_fadds:fadds_3_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fadds:fadds_3_cr_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      instr__gen_fadds:fadds_4_GEN  f3 expected 0x7FF8000000000000 actual 0x0000000000000000
+      ... 55 more
+  [fail] mismatch in cr: 34
+      instr__gen_fadds:fadds_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fadds:fadds_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadds:fadds_20_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 31 more
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fadds:fadds_106_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadds:fadds_117_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fdivs: 85 of 288 failing
+  [fail] mismatch in cr: 49
+      instr__gen_fdivs:fdivs_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_25_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 46 more
+  [fail] mismatch in f3: 23
+      instr__gen_fdivs:fdivs_1_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdivs:fdivs_2_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdivs:fdivs_13_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 20 more
+  [fail] mismatch in cr,f3: 13
+      instr__gen_fdivs:fdivs_1_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_2_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdivs:fdivs_13_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 10 more
+
+== fdiv: 67 of 288 failing
+  [fail] mismatch in cr: 51
+      instr__gen_fdiv:fdiv_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_25_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 48 more
+  [fail] mismatch in f3: 8
+      instr__gen_fdiv:fdiv_1_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdiv:fdiv_2_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fdiv:fdiv_13_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 5 more
+  [fail] mismatch in cr,f3: 8
+      instr__gen_fdiv:fdiv_1_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_2_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fdiv:fdiv_13_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 5 more
+
+== vaddfp: 48 of 651 failing
+  [fail] mismatch in v3: 48
+      instr__gen_vaddfp:vaddfp_56_GEN  v3 expected [00FFFF00, FFFF0000, FF0000FF, FFFF0000] actual [00FFFF00, FFFF0000, FF0000FF, FFFF00FF]
+      instr__gen_vaddfp:vaddfp_71_GEN  v3 expected [FFFCFFFD, FFFF0000, 00000000, FFFF0000] actual [FFFCFFFD, FFFEFFFF, 00000000, FFFF0000]
+      instr__gen_vaddfp:vaddfp_75_GEN  v3 expected [FFFFFFFF, FFFF0000, FFFFFFFF, FFFF0000] actual [FFFFFFFF, FFFFFFFF, FFFFFFFF, FFFFFFFF]
+      ... 45 more
+
+== fmul: 46 of 291 failing
+  [fail] mismatch in cr: 30
+      instr__gen_fmul:fmul_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_27_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 27 more
+  [fail] mismatch in f3: 8
+      instr__gen_fmul:fmul_9_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmul:fmul_10_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fmul:fmul_21_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      ... 5 more
+  [fail] mismatch in cr,f3: 8
+      instr__gen_fmul:fmul_9_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_10_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fmul:fmul_21_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 5 more
+
+== fadd: 43 of 291 failing
+  [fail] mismatch in cr: 39
+      instr__gen_fadd:fadd_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadd:fadd_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadd:fadd_29_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 36 more
+  [fail] mismatch in f3: 2
+      instr__gen_fadd:fadd_106_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fadd:fadd_117_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fadd:fadd_106_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fadd:fadd_117_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== fsub: 43 of 288 failing
+  [fail] mismatch in cr: 39
+      instr__gen_fsub:fsub_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsub:fsub_24_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsub:fsub_29_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 36 more
+  [fail] mismatch in f3: 2
+      instr__gen_fsub:fsub_105_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fsub:fsub_118_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+  [fail] mismatch in cr,f3: 2
+      instr__gen_fsub:fsub_105_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsub:fsub_118_cr_GEN  f3 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== addme: 32 of 32 failing
+  [unimplemented] unimplemented addme: 16
+      instr_addme:addme_1  unimplemented addme at 0x82010000
+      instr_addme:addme_1_constant  unimplemented addme at 0x82010010
+      instr_addme:addme_2  unimplemented addme at 0x82010028
+      ... 13 more
+  [unimplemented] unimplemented addme.: 16
+      instr_addme:addme_cr_1  unimplemented addme. at 0x82010140
+      instr_addme:addme_cr_1_constant  unimplemented addme. at 0x82010154
+      instr_addme:addme_cr_2  unimplemented addme. at 0x82010170
+      ... 13 more
+
+== vrfip: 31 of 31 failing
+  [unimplemented] unimplemented vrfip: 31
+      instr__gen_vrfip:vrfip_1_GEN  unimplemented vrfip at 0x82010000
+      instr__gen_vrfip:vrfip_2_GEN  unimplemented vrfip at 0x82010000
+      instr__gen_vrfip:vrfip_3_GEN  unimplemented vrfip at 0x82010000
+      ... 28 more
+
+== vlogefp: 26 of 31 failing
+  [fail] mismatch in v2: 24
+      instr__gen_vlogefp:vlogefp_2_GEN  v2 expected [FF800000, FF800000, FF800000, FF800000] actual [C3160000, C3160000, C3160000, C3160000]
+      instr__gen_vlogefp:vlogefp_3_GEN  v2 expected [FF800000, FFFF0000, FF800000, FFFF0000] actual [C3160000, FFFF0000, FF800000, FFFF0000]
+      instr__gen_vlogefp:vlogefp_4_GEN  v2 expected [FF800000, C2EDE200, C2DDCB00, C2CDB700] actual [C3160000, C2EDE391, C2DDCD99, C2CDB843]
+      ... 21 more
+  [fail] mismatch in v5: 2
+      instr_vlogefp:vlogefp_4  v5 expected [3FCB0000, 40148000, 40258000, 4033F800] actual [3FCAE00D, 40149A78, 40257007, 4033ABB4]
+      instr_vlogefp:vlogefp_5  v5 expected [40D4BC00, 40F4BC00, 410A5E00, 411A5E00] actual [40D49A78, 40F49A78, 410A4D3C, 411A4D3C]
+
+== fctiw: 24 of 24 failing
+  [unimplemented] unimplemented fctiw: 12
+      instr__gen_fctiw:fctiw_1_GEN  unimplemented fctiw at 0x82010000
+      instr__gen_fctiw:fctiw_2_GEN  unimplemented fctiw at 0x82010000
+      instr__gen_fctiw:fctiw_3_GEN  unimplemented fctiw at 0x82010000
+      ... 9 more
+  [unimplemented] unimplemented fctiw.: 12
+      instr__gen_fctiw:fctiw_1_cr_GEN  unimplemented fctiw. at 0x82010008
+      instr__gen_fctiw:fctiw_2_cr_GEN  unimplemented fctiw. at 0x82010008
+      instr__gen_fctiw:fctiw_3_cr_GEN  unimplemented fctiw. at 0x82010008
+      ... 9 more
+
+== vrsqrtefp: 23 of 31 failing
+  [fail] mismatch in v2: 18
+      instr__gen_vrsqrtefp:vrsqrtefp_4_GEN  v2 expected [7F800000, 5D3197F2, 5B2EF270, 592C7677] actual [7F800000, 5D319183, 5B2EF288, 592C706B]
+      instr__gen_vrsqrtefp:vrsqrtefp_6_GEN  v2 expected [7F800000, 3D0C3322, 7FC00000, 7FC00000] actual [7F800000, 3D0C31EB, FFC00000, FFC00000]
+      instr__gen_vrsqrtefp:vrsqrtefp_7_GEN  v2 expected [5EB502BA, 7F800000, 7FC00000, FFFF00FF] actual [5EB5054D, 7F800000, FFC00000, FFFF00FF]
+      ... 15 more
+  [fail] mismatch in v5: 5
+      instr_vrsqrtefp:vrsqrtefp_1  v5 expected [3F7FF400, 3F34FD00, 3EFFF400, 3EB4FD00] actual [3F800000, 3F3504F3, 3F000000, 3EB504F3]
+      instr_vrsqrtefp:vrsqrtefp_2  v5 expected [3F13CA00, 3EE4F200, 3EA1E400, 3E7FF400] actual [3F13CD3A, 3EE4F92E, 3EA1E89B, 3E800000]
+      instr_vrsqrtefp:vrsqrtefp_3  v5 expected [3E715400, 3E64F200, 3E5A4C00, 3E510200] actual [3E715BF0, 3E64F92E, 3E5A514A, 3E5105EB]
+      ... 2 more
+
+== addc: 22 of 22 failing
+  [unimplemented] unimplemented addc.: 12
+      instr_addc:addc_cr_1  unimplemented addc. at 0x820100A0
+      instr_addc:addc_cr_1_constant  unimplemented addc. at 0x820100B8
+      instr_addc:addc_cr_2  unimplemented addc. at 0x820100A0
+      ... 9 more
+  [unimplemented] unimplemented addc: 10
+      instr_addc:addc_1  unimplemented addc at 0x82010000
+      instr_addc:addc_1_constant  unimplemented addc at 0x82010014
+      instr_addc:addc_2  unimplemented addc at 0x82010000
+      ... 7 more
+
+== vrefp: 22 of 31 failing
+  [fail] mismatch in v2: 17
+      instr__gen_vrefp:vrefp_4_GEN  v2 expected [7F800000, 7AF6598B, 76EF204B, 72E85140] actual [7F800000, 7AF65514, 76EF1D30, 72E84E83]
+      instr__gen_vrefp:vrefp_6_GEN  v2 expected [7F800000, 3A999016, F65542EC, B213A933] actual [7F800000, 3A998D45, F6553D8D, B213A5D5]
+      instr__gen_vrefp:vrefp_7_GEN  v2 expected [7E000106, 7F800000, 80000000, FFFF00FF] actual [7E000080, 7F800000, 80000000, FFFF00FF]
+      ... 14 more
+  [fail] mismatch in v5: 5
+      instr_vrefp:vrefp_1  v5 expected [3F7FF800, 3EFFF800, 3EAAA800, 3E7FF800] actual [3F800000, 3F000000, 3EAAAAAB, 3E800000]
+      instr_vrefp:vrefp_2  v5 expected [3E4CC800, 3E2AA800, 3E124400, 3DFFF800] actual [3E4CCCCD, 3E2AAAAB, 3E124925, 3E000000]
+      instr_vrefp:vrefp_3  v5 expected [3FFFF800, 407FF800, 40FFF800, 417FF800] actual [40000000, 40800000, 41000000, 41800000]
+      ... 2 more
+
+== rlwnm: 19 of 23 failing
+  [unimplemented] unimplemented rlwnm: 17
+      instr_rlwnm:rlwnm_1  unimplemented rlwnm at 0x82010000
+      instr_rlwnm:rlwnm_1_constant  unimplemented rlwnm at 0x82010014
+      instr_rlwnm:rlwnm_2  unimplemented rlwnm at 0x8201001C
+      ... 14 more
+  [unimplemented] unimplemented rlwnm.: 2
+      instr_rlwnm:rlwnm_4  unimplemented rlwnm. at 0x82010058
+      instr_rlwnm:rlwnm_4_constant  unimplemented rlwnm. at 0x82010070
+
+== vpkd3d128: 19 of 28 failing
+  [fail] mismatch in v4: 8
+      instr_vpkd3d128:vpkd3d128_d3dcolor_invalid_2  v4 expected [CDCDCDCD, CDCDCDCD, CDCDCDCD, 00FF0000] actual [CDCDCDCD, CDCDCDCD, CDCDCDCD, FFFF0000]
+      instr_vpkd3d128:vpkd3d128_d3dcolor_2_0  v4 expected [CDCDCDCD, CDCDCDCD, 00000000, 04010203] actual [CDCDCDCD, CDCDCDCD, CDCDCDCD, 04010203]
+      instr_vpkd3d128:vpkd3d128_d3dcolor_2_1  v4 expected [CDCDCDCD, 00000000, 04010203, CDCDCDCD] actual [CDCDCDCD, CDCDCDCD, 04010203, CDCDCDCD]
+      ... 5 more
+  [unimplemented] unimplemented vpkd3d128 type 1: 5
+      instr_vpkd3d128:vpkd3d128_short2_invalid_0  unimplemented vpkd3d128 type 1 at 0x82010078
+      instr_vpkd3d128:vpkd3d128_short2_invalid_1  unimplemented vpkd3d128 type 1 at 0x82010078
+      instr_vpkd3d128:vpkd3d128_short2_0  unimplemented vpkd3d128 type 1 at 0x82010078
+      ... 2 more
+  [unimplemented] unimplemented vpkd3d128 type 2: 3
+      instr_vpkd3d128:vpkd3d128_uint_2101010_0  unimplemented vpkd3d128 type 2 at 0x820100A8
+      instr_vpkd3d128:vpkd3d128_uint_2101010_1  unimplemented vpkd3d128 type 2 at 0x820100A8
+      instr_vpkd3d128:vpkd3d128_uint_2101010_2  unimplemented vpkd3d128 type 2 at 0x820100A8
+  [compile_failed] f15: use of undeclared identifier 'ppc_float_to_half': 2
+      instr_vpkd3d128:vpkd3d128_float16_2_invalid_0  f15: use of undeclared identifier 'ppc_float_to_half'
+      instr_vpkd3d128:vpkd3d128_float16_2_0  f15: use of undeclared identifier 'ppc_float_to_half'
+  [unimplemented] unimplemented vpkd3d128 type 4: 1
+      instr_vpkd3d128:vpkd3d128_short4_0  unimplemented vpkd3d128 type 4 at 0x820100A0
+
+== frsqrte: 17 of 27 failing
+  [fail] mismatch in f2: 11
+      instr__gen_frsqrte:frsqrte_3_GEN  f2 expected 0x617F100000000000 actual 0x6180000000000000
+      instr__gen_frsqrte:frsqrte_3_cr_GEN  f2 expected 0x617F100000000000 actual 0x6180000000000000
+      instr__gen_frsqrte:frsqrte_4_GEN  f2 expected 0x5FE0800000000000 actual 0x5FE0000000000001
+      ... 8 more
+  [fail] mismatch in cr: 3
+      instr__gen_frsqrte:frsqrte_1_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsqrte:frsqrte_2_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsqrte:frsqrte_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+  [fail] mismatch in cr,f2: 3
+      instr__gen_frsqrte:frsqrte_6_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_frsqrte:frsqrte_7_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_frsqrte:frsqrte_10_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== subfme: 16 of 16 failing
+  [unimplemented] unimplemented subfme: 16
+      instr_subfme:subfme_one_ca_1  unimplemented subfme at 0x8201000C
+      instr_subfme:subfme_one_ca_1_constant  unimplemented subfme at 0x8201002C
+      instr_subfme:subfme_one_ca_2  unimplemented subfme at 0x8201000C
+      ... 13 more
+
+== subfze: 16 of 16 failing
+  [unimplemented] unimplemented subfze: 16
+      instr_subfze:subfze_one_ca_1  unimplemented subfze at 0x8201000C
+      instr_subfze:subfze_one_ca_1_constant  unimplemented subfze at 0x8201002C
+      instr_subfze:subfze_one_ca_2  unimplemented subfze at 0x8201000C
+      ... 13 more
+
+== mcrf: 14 of 14 failing
+  [unimplemented] unimplemented mcrf: 14
+      instr_mcrf:mcrf_1  unimplemented mcrf at 0x82010004
+      instr_mcrf:mcrf_1_constant  unimplemented mcrf at 0x8201001C
+      instr_mcrf:mcrf_2  unimplemented mcrf at 0x8201002C
+      ... 11 more
+
+== fsqrts: 12 of 24 failing
+  [fail] mismatch in f2: 6
+      instr__gen_fsqrts:fsqrts_3_GEN  f2 expected 0x1E60000000000000 actual 0x0000000000000000
+      instr__gen_fsqrts:fsqrts_3_cr_GEN  f2 expected 0x1E60000000000000 actual 0x0000000000000000
+      instr__gen_fsqrts:fsqrts_4_GEN  f2 expected 0x1FFFFFFFFFFFFFFF actual 0x0000000000000000
+      ... 3 more
+  [fail] mismatch in cr,f2: 4
+      instr__gen_fsqrts:fsqrts_4_cr_GEN  f2 expected 0x1FFFFFFFFFFFFFFF actual 0x0000000000000000 ; cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrts:fsqrts_6_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsqrts:fsqrts_7_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      ... 1 more
+  [fail] mismatch in cr: 2
+      instr__gen_fsqrts:fsqrts_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrts:fsqrts_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+
+== fres: 11 of 24 failing
+  [fail] mismatch in f2: 6
+      instr__gen_fres:fres_5_GEN  f2 expected 0x3FEFE00000000000 actual 0x3FF0000000000000
+      instr__gen_fres:fres_5_cr_GEN  f2 expected 0x3FEFE00000000000 actual 0x3FF0000000000000
+      instr__gen_fres:fres_6_GEN  f2 expected 0xBFEFE00000000000 actual 0xBFF0000000000000
+      ... 3 more
+  [fail] mismatch in cr: 5
+      instr__gen_fres:fres_1_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fres:fres_2_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fres:fres_3_cr_GEN  cr expected 0x09000000 actual 0x00000000
+      ... 2 more
+
+== crand: 10 of 10 failing
+  [unimplemented] unimplemented crand: 10
+      instr_crand:crand_1  unimplemented crand at 0x82010008
+      instr_crand:crand_1_constant  unimplemented crand at 0x8201002C
+      instr_crand:crand_2  unimplemented crand at 0x82010040
+      ... 7 more
+
+== crandc: 10 of 10 failing
+  [unimplemented] unimplemented crandc: 10
+      instr_crandc:crandc_1  unimplemented crandc at 0x82010008
+      instr_crandc:crandc_1_constant  unimplemented crandc at 0x8201002C
+      instr_crandc:crandc_2  unimplemented crandc at 0x82010040
+      ... 7 more
+
+== creqv: 10 of 10 failing
+  [unimplemented] unimplemented creqv: 10
+      instr_creqv:creqv_1  unimplemented creqv at 0x82010008
+      instr_creqv:creqv_1_constant  unimplemented creqv at 0x8201002C
+      instr_creqv:creqv_2  unimplemented creqv at 0x82010040
+      ... 7 more
+
+== crnand: 10 of 10 failing
+  [unimplemented] unimplemented crnand: 10
+      instr_crnand:crnand_1  unimplemented crnand at 0x82010008
+      instr_crnand:crnand_1_constant  unimplemented crnand at 0x8201002C
+      instr_crnand:crnand_2  unimplemented crnand at 0x82010040
+      ... 7 more
+
+== crnor: 10 of 10 failing
+  [unimplemented] unimplemented crnor: 10
+      instr_crnor:crnor_1  unimplemented crnor at 0x82010008
+      instr_crnor:crnor_1_constant  unimplemented crnor at 0x8201002C
+      instr_crnor:crnor_2  unimplemented crnor at 0x82010040
+      ... 7 more
+
+== cror: 10 of 10 failing
+  [unimplemented] unimplemented cror: 10
+      instr_cror:cror_1  unimplemented cror at 0x82010008
+      instr_cror:cror_1_constant  unimplemented cror at 0x8201002C
+      instr_cror:cror_2  unimplemented cror at 0x82010040
+      ... 7 more
+
+== crorc: 10 of 10 failing
+  [unimplemented] unimplemented crorc: 10
+      instr_crorc:crorc_1  unimplemented crorc at 0x82010008
+      instr_crorc:crorc_1_constant  unimplemented crorc at 0x8201002C
+      instr_crorc:crorc_2  unimplemented crorc at 0x82010040
+      ... 7 more
+
+== crxor: 10 of 10 failing
+  [unimplemented] unimplemented crxor: 10
+      instr_crxor:crxor_1  unimplemented crxor at 0x82010008
+      instr_crxor:crxor_1_constant  unimplemented crxor at 0x8201002C
+      instr_crxor:crxor_2  unimplemented crxor at 0x82010040
+      ... 7 more
+
+== mulhd: 10 of 10 failing
+  [unimplemented] unimplemented mulhd: 10
+      instr_mulhd:mulhd_1  unimplemented mulhd at 0x82010000
+      instr_mulhd:mulhd_1_constant  unimplemented mulhd at 0x82010010
+      instr_mulhd:mulhd_2  unimplemented mulhd at 0x82010000
+      ... 7 more
+
+== rldcl: 10 of 10 failing
+  [unimplemented] unimplemented rotld: 6
+      instr_rldcl:rldcl_1  unimplemented rotld at 0x82010000
+      instr_rldcl:rldcl_1_constant  unimplemented rotld at 0x82010028
+      instr_rldcl:rldcl_3  unimplemented rotld at 0x82010000
+      ... 3 more
+  [unimplemented] unimplemented rldcl: 4
+      instr_rldcl:rldcl_2  unimplemented rldcl at 0x82010030
+      instr_rldcl:rldcl_2_constant  unimplemented rldcl at 0x82010058
+      instr_rldcl:rldcl_5  unimplemented rldcl at 0x820100C0
+      ... 1 more
+
+== rldcr: 10 of 10 failing
+  [unimplemented] unimplemented rldcr: 10
+      instr_rldcr:rldcr_1  unimplemented rldcr at 0x82010000
+      instr_rldcr:rldcr_1_constant  unimplemented rldcr at 0x82010028
+      instr_rldcr:rldcr_2  unimplemented rldcr at 0x82010030
+      ... 7 more
+
+== rldic: 10 of 10 failing
+  [unimplemented] unimplemented rldic: 10
+      instr_rldic:rldic_1  unimplemented rldic at 0x82010000
+      instr_rldic:rldic_1_constant  unimplemented rldic at 0x82010024
+      instr_rldic:rldic_2  unimplemented rldic at 0x8201002C
+      ... 7 more
+
+== fsqrt: 9 of 27 failing
+  [fail] mismatch in cr: 3
+      instr__gen_fsqrt:fsqrt_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_12_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+  [fail] mismatch in f2: 3
+      instr__gen_fsqrt:fsqrt_6_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fsqrt:fsqrt_7_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+      instr__gen_fsqrt:fsqrt_10_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000
+  [fail] mismatch in cr,f2: 3
+      instr__gen_fsqrt:fsqrt_6_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_7_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+      instr__gen_fsqrt:fsqrt_10_cr_GEN  f2 expected 0x7FF8000000000000 actual 0xFFF8000000000000 ; cr expected 0x0A000000 actual 0x00000000
+
+== vspltish: 8 of 8 failing
+  [unimplemented] unimplemented vspltish: 8
+      instr__gen_vspltish:vspltish_1_GEN  unimplemented vspltish at 0x82010000
+      instr__gen_vspltish:vspltish_2_GEN  unimplemented vspltish at 0x82010008
+      instr__gen_vspltish:vspltish_3_GEN  unimplemented vspltish at 0x82010010
+      ... 5 more
+
+== mulhdx: 7 of 9 failing
+  [unimplemented] unimplemented mulhd.: 4
+      instr_mulhdx:mulhdx_1  unimplemented mulhd. at 0x82010000
+      instr_mulhdx:mulhdx_1_constant  unimplemented mulhd. at 0x8201001C
+      instr_mulhdx:mulhdx_negative  unimplemented mulhd. at 0x82010000
+      ... 1 more
+  [fail] mismatch in r12: 3
+      instr_mulhdx:mulhdux_1  r12 expected 0x0000000040000000 actual 0x0000000000000000
+      instr_mulhdx:mulhdux_max  r12 expected 0x0000000080000000 actual 0x0000000000000000
+      instr_mulhdx:mulhwx_1  r12 expected 0x0000000040000000 actual 0x0000000000000000
+
+== addo: 6 of 6 failing
+  [unimplemented] unimplemented addo: 6
+      instr_addo:addo_1  unimplemented addo at 0x82010000
+      instr_addo:addo_2  unimplemented addo at 0x82010000
+      instr_addo:addo_3  unimplemented addo at 0x82010000
+      ... 3 more
+
+== fctid: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctid:fctid_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctid:fctid_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctid:fctid_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== fctidz: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctidz:fctidz_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctidz:fctidz_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctidz:fctidz_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== fctiwz: 6 of 24 failing
+  [fail] mismatch in cr: 6
+      instr__gen_fctiwz:fctiwz_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctiwz:fctiwz_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_fctiwz:fctiwz_9_cr_GEN  cr expected 0x0A000000 actual 0x00000000
+      ... 3 more
+
+== addx: 5 of 9 failing
+  [unimplemented] unimplemented addc.: 2
+      instr_addx:addcx_1  unimplemented addc. at 0x82010038
+      instr_addx:addcx_overflow  unimplemented addc. at 0x82010038
+  [unimplemented] unimplemented mfxer: 2
+      instr_addx:addex_1  unimplemented mfxer at 0x8201005C
+      instr_addx:addzex_1  unimplemented mfxer at 0x82010084
+  [unimplemented] unimplemented addme.: 1
+      instr_addx:addmex_1  unimplemented addme. at 0x82010068
+
+== divwo: 5 of 5 failing
+  [unimplemented] unimplemented divwo: 2
+      instr_divwo:divwo_2  unimplemented divwo at 0x8201000C
+      instr_divwo:divwo_3  unimplemented divwo at 0x8201000C
+  [unimplemented] unimplemented divwuo: 2
+      instr_divwo:divwuo_1  unimplemented divwuo at 0x8201001C
+      instr_divwo:divwuo_2  unimplemented divwuo at 0x8201001C
+  [unimplemented] unimplemented addo: 1
+      instr_divwo:divwo_1  unimplemented addo at 0x82010000
+
+== mtfsb: 5 of 5 failing
+  [unimplemented] unimplemented mtfsb1: 3
+      instr_mtfsb:mtfsb_3  unimplemented mtfsb1 at 0x82010024
+      instr_mtfsb:mtfsb_4  unimplemented mtfsb1 at 0x82010038
+      instr_mtfsb:mtfsb_5  unimplemented mtfsb1 at 0x82010048
+  [unimplemented] unimplemented mtfsb0: 1
+      instr_mtfsb:mtfsb_1  unimplemented mtfsb0 at 0x82010004
+  [unimplemented] unimplemented mtfsb1.: 1
+      instr_mtfsb:mtfsb_2  unimplemented mtfsb1. at 0x82010014
+
+== mullwo: 5 of 5 failing
+  [unimplemented] unimplemented mullwo: 3
+      instr_mullwo:mullwo_1  unimplemented mullwo at 0x82010000
+      instr_mullwo:mullwo_2  unimplemented mullwo at 0x82010000
+      instr_mullwo:mullwo_3  unimplemented mullwo at 0x82010000
+  [unimplemented] unimplemented mulldo: 2
+      instr_mullwo:mulldo_1  unimplemented mulldo at 0x82010018
+      instr_mullwo:mulldo_2  unimplemented mulldo at 0x82010018
+
+== vrefp128: 5 of 5 failing
+  [fail] mismatch in v5: 5
+      instr_vrefp128:vrefp128_1  v5 expected [3F7FF800, 3EFFF800, 3EAAA800, 3E7FF800] actual [3F800000, 3F000000, 3EAAAAAB, 3E800000]
+      instr_vrefp128:vrefp128_2  v5 expected [3E4CC800, 3E2AA800, 3E124400, 3DFFF800] actual [3E4CCCCD, 3E2AAAAB, 3E124925, 3E000000]
+      instr_vrefp128:vrefp128_3  v5 expected [3FFFF800, 407FF800, 40FFF800, 417FF800] actual [40000000, 40800000, 41000000, 41800000]
+      ... 2 more
+
+== vrfip128: 5 of 5 failing
+  [unimplemented] unimplemented vrfip128: 5
+      instr_vrfip128:vrfip128_1  unimplemented vrfip128 at 0x82010000
+      instr_vrfip128:vrfip128_2  unimplemented vrfip128 at 0x82010000
+      instr_vrfip128:vrfip128_3  unimplemented vrfip128 at 0x82010000
+      ... 2 more
+
+== vrsqrtefp128: 5 of 5 failing
+  [fail] mismatch in v5: 5
+      instr_vrsqrtefp128:vrsqrtefp128_1  v5 expected [3F7FF400, 3EFFF400, 3EAAA500, 3E7FF400] actual [3F800000, 3F000000, 3EAAAAAB, 3E800000]
+      instr_vrsqrtefp128:vrsqrtefp128_2  v5 expected [3E4CCA00, 3E10CE00, 3DCCCA00, 3D90CE00] actual [3E4CCCCD, 3E10D0C3, 3DCCCCCD, 3D90D0C3]
+      instr_vrsqrtefp128:vrsqrtefp128_3  v5 expected [3FB4FD00, 3FFFF400, 4034FD00, 407FF400] actual [3FB504F3, 40000000, 403504F3, 40800000]
+      ... 2 more
+
+== divdx: 4 of 10 failing
+  [fail] mismatch in r12: 4
+      instr_divdx:divdx_1  r12 expected 0x0000000040000000 actual 0x0000000000000000
+      instr_divdx:divdx_1_constant  r12 expected 0x0000000040000000 actual 0x0000000000000000
+      instr_divdx:divdx_negative  r12 expected 0x0000000080000000 actual 0x0000000000000000
+      ... 1 more
+
+== fctiwx: 4 of 4 failing
+  [unimplemented] unimplemented fctiw.: 4
+      instr_fctiwx:fctiwx_1  unimplemented fctiw. at 0x82010000
+      instr_fctiwx:fctiwx_2  unimplemented fctiw. at 0x82010000
+      instr_fctiwx:fctiwx_3  unimplemented fctiw. at 0x82010000
+      ... 1 more
+
+== fnmaddx: 4 of 4 failing
+  [unimplemented] unimplemented fnmadd.: 4
+      instr_fnmaddx:fnmaddx_1  unimplemented fnmadd. at 0x82010000
+      instr_fnmaddx:fnmaddx_2  unimplemented fnmadd. at 0x82010000
+      instr_fnmaddx:fnmaddx_3  unimplemented fnmadd. at 0x82010000
+      ... 1 more
+
+== fresx: 4 of 4 failing
+  [fail] mismatch in f3: 4
+      instr_fresx:fresx_1  f3 expected 0x3FDFE00000000000 actual 0x3FE0000000000000
+      instr_fresx:fresx_2  f3 expected 0x3FCFE00000000000 actual 0x3FD0000000000000
+      instr_fresx:fresx_3  f3 expected 0x3FFFE00000000000 actual 0x4000000000000000
+      ... 1 more
+
+== frsp: 4 of 24 failing
+  [fail] mismatch in cr: 4
+      instr__gen_frsp:frsp_3_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsp:frsp_4_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      instr__gen_frsp:frsp_8_cr_GEN  cr expected 0x08000000 actual 0x00000000
+      ... 1 more
+
+== frsqrtex: 4 of 4 failing
+  [fail] mismatch in f3: 4
+      instr_frsqrtex:frsqrtex_1  f3 expected 0.4853515625 (0x3FDF100000000000) actual 0.5 (0x3FE0000000000000)
+      instr_frsqrtex:frsqrtex_2  f3 expected 0.24267578125 (0x3FCF100000000000) actual 0.25 (0x3FD0000000000000)
+      instr_frsqrtex:frsqrtex_3  f3 expected 0.970703125 (0x3FEF100000000000) actual 1 (0x3FF0000000000000)
+      ... 1 more
+
+== icbi: 4 of 4 failing
+  [unimplemented] unimplemented icbi: 4
+      instr_icbi:icbi_1  unimplemented icbi at 0x82010000
+      instr_icbi:icbi_2  unimplemented icbi at 0x82010000
+      instr_icbi:icbi_3  unimplemented icbi at 0x82010000
+      ... 1 more
+
+== lhau: 4 of 4 failing
+  [unimplemented] unimplemented lhau: 2
+      instr_lhau:lhau_1  unimplemented lhau at 0x82010000
+      instr_lhau:lhau_2  unimplemented lhau at 0x82010008
+  [unimplemented] unimplemented lhaux: 2
+      instr_lhau:lhaux_1  unimplemented lhaux at 0x82010010
+      instr_lhau:lhaux_2  unimplemented lhaux at 0x82010010
+
+== lhzu: 4 of 4 failing
+  [unimplemented] unimplemented lhzu: 2
+      instr_lhzu:lhzu_1  unimplemented lhzu at 0x82010000
+      instr_lhzu:lhzu_2  unimplemented lhzu at 0x82010008
+  [unimplemented] unimplemented lhzux: 2
+      instr_lhzu:lhzux_1  unimplemented lhzux at 0x82010010
+      instr_lhzu:lhzux_2  unimplemented lhzux at 0x82010010
+
+== lvexx: 4 of 16 failing
+  [unimplemented] unimplemented lvebx: 4
+      instr_lvexx:lvebx_1  unimplemented lvebx at 0x82010000
+      instr_lvexx:lvebx_1_constant  unimplemented lvebx at 0x82010010
+      instr_lvexx:lvebx_2  unimplemented lvebx at 0x82010000
+      ... 1 more
+
+== mffsx: 4 of 4 failing
+  [fail] mismatch in f3: 1
+      instr_mffsx:mffsx_1  f3 expected 0xFFF8000000000000 actual 0x0000000000000000
+  [fail] mismatch in f4: 1
+      instr_mffsx:mffsx_2  f4 expected 0xFFF8000000000001 actual 0x0000000000000001
+  [fail] mismatch in f5: 1
+      instr_mffsx:mffsx_3  f5 expected 0xFFF80000000000F0 actual 0x0000000000000000
+  [fail] mismatch in f6: 1
+      instr_mffsx:mffsx_4  f6 expected 0xFFF8000072345678 actual 0x0000000000000000
+
+== mtfsfix: 4 of 4 failing
+  [unimplemented] unimplemented mtfsfi.: 4
+      instr_mtfsfix:mtfsfix_1  unimplemented mtfsfi. at 0x82010000
+      instr_mtfsfix:mtfsfix_2  unimplemented mtfsfi. at 0x82010008
+      instr_mtfsfix:mtfsfix_3  unimplemented mtfsfi. at 0x82010010
+      ... 1 more
+
+== mulldx: 4 of 6 failing
+  [fail] mismatch in r12: 4
+      instr_mulldx:mulldx_1  r12 expected 0x0000000040000000 actual 0x0000000000000000
+      instr_mulldx:mulldx_1_constant  r12 expected 0x0000000040000000 actual 0x0000000000000000
+      instr_mulldx:mulldx_negative  r12 expected 0x0000000080000000 actual 0x0000000000000000
+      ... 1 more
+
+== rldclx: 4 of 4 failing
+  [unimplemented] unimplemented rldcl.: 4
+      instr_rldclx:rldclx_1  unimplemented rldcl. at 0x82010000
+      instr_rldclx:rldclx_2  unimplemented rldcl. at 0x82010008
+      instr_rldclx:rldclx_3  unimplemented rldcl. at 0x82010010
+      ... 1 more
+
+== rldcrx: 4 of 4 failing
+  [unimplemented] unimplemented rldcr.: 4
+      instr_rldcrx:rldcrx_1  unimplemented rldcr. at 0x82010000
+      instr_rldcrx:rldcrx_2  unimplemented rldcr. at 0x82010008
+      instr_rldcrx:rldcrx_3  unimplemented rldcr. at 0x82010010
+      ... 1 more
+
+== rldicx: 4 of 4 failing
+  [unimplemented] unimplemented rldic.: 4
+      instr_rldicx:rldicx_1  unimplemented rldic. at 0x82010000
+      instr_rldicx:rldicx_2  unimplemented rldic. at 0x82010008
+      instr_rldicx:rldicx_3  unimplemented rldic. at 0x82010010
+      ... 1 more
+
+== stvebx: 4 of 4 failing
+  [unimplemented] unimplemented stvebx: 4
+      instr_stvebx:stvebx_1  unimplemented stvebx at 0x82010004
+      instr_stvebx:stvebx_2  unimplemented stvebx at 0x82010010
+      instr_stvebx:stvebx_3  unimplemented stvebx at 0x8201001C
+      ... 1 more
+
+== lvsl128: 3 of 3 failing
+  [unimplemented] unimplemented lvsl128: 3
+      instr_lvsl128:lvsl128_1  unimplemented lvsl128 at 0x82010000
+      instr_lvsl128:lvsl128_2  unimplemented lvsl128 at 0x82010000
+      instr_lvsl128:lvsl128_3  unimplemented lvsl128 at 0x82010000
+
+== lvsr128: 3 of 3 failing
+  [unimplemented] unimplemented lvsr128: 3
+      instr_lvsr128:lvsr128_1  unimplemented lvsr128 at 0x82010000
+      instr_lvsr128:lvsr128_2  unimplemented lvsr128 at 0x82010000
+      instr_lvsr128:lvsr128_3  unimplemented lvsr128 at 0x82010000
+
+== mcrxr: 3 of 3 failing
+  [unimplemented] unimplemented addc: 2
+      instr_mcrxr:mcrxr_1  unimplemented addc at 0x82010000
+      instr_mcrxr:mcrxr_2  unimplemented addc at 0x8201000C
+  [unimplemented] unimplemented addo: 1
+      instr_mcrxr:mcrxr_3  unimplemented addo at 0x82010018
+
+== nego: 3 of 3 failing
+  [unimplemented] unimplemented nego: 3
+      instr_nego:nego_1  unimplemented nego at 0x82010000
+      instr_nego:nego_2  unimplemented nego at 0x82010000
+      instr_nego:nego_3  unimplemented nego at 0x82010000
+
+== rlwnmx: 3 of 4 failing
+  [unimplemented] unimplemented rlwnm.: 3
+      instr_rlwnmx:rlwnmx_1  unimplemented rlwnm. at 0x82010000
+      instr_rlwnmx:rlwnmx_2  unimplemented rlwnm. at 0x82010008
+      instr_rlwnmx:rlwnmx_3  unimplemented rlwnm. at 0x82010010
+
+== subfx: 3 of 9 failing
+  [unimplemented] unimplemented mfxer: 1
+      instr_subfx:subfex_1  unimplemented mfxer at 0x8201005C
+  [unimplemented] unimplemented subfme.: 1
+      instr_subfx:subfmex_1  unimplemented subfme. at 0x82010068
+  [unimplemented] unimplemented subfze.: 1
+      instr_subfx:subfzex_1  unimplemented subfze. at 0x8201007C
+
+== vpkshss128: 3 of 3 failing
+  [unimplemented] unimplemented vpkshss128: 3
+      instr_vpkshss128:vpkshss128_1  unimplemented vpkshss128 at 0x82010000
+      instr_vpkshss128:vpkshss128_2  unimplemented vpkshss128 at 0x82010000
+      instr_vpkshss128:vpkshss128_3  unimplemented vpkshss128 at 0x82010000
+
+== vpkswss128: 3 of 3 failing
+  [unimplemented] unimplemented vpkswss128: 3
+      instr_vpkswss128:vpkswss128_1  unimplemented vpkswss128 at 0x82010000
+      instr_vpkswss128:vpkswss128_2  unimplemented vpkswss128 at 0x82010000
+      instr_vpkswss128:vpkswss128_3  unimplemented vpkswss128 at 0x82010000
+
+== vpkuhum128: 3 of 3 failing
+  [unimplemented] unimplemented vpkuhum128: 3
+      instr_vpkuhum128:vpkuhum128_1  unimplemented vpkuhum128 at 0x82010000
+      instr_vpkuhum128:vpkuhum128_2  unimplemented vpkuhum128 at 0x82010000
+      instr_vpkuhum128:vpkuhum128_3  unimplemented vpkuhum128 at 0x82010000
+
+== vpkuwum128: 3 of 3 failing
+  [unimplemented] unimplemented vpkuwum128: 3
+      instr_vpkuwum128:vpkuwum128_1  unimplemented vpkuwum128 at 0x82010000
+      instr_vpkuwum128:vpkuwum128_2  unimplemented vpkuwum128 at 0x82010000
+      instr_vpkuwum128:vpkuwum128_3  unimplemented vpkuwum128 at 0x82010000
+
+== lbzu: 2 of 4 failing
+  [unimplemented] unimplemented lbzux: 2
+      instr_lbzu:lbzux_1  unimplemented lbzux at 0x82010010
+      instr_lbzu:lbzux_2  unimplemented lbzux at 0x82010010
+
+== ldu: 2 of 4 failing
+  [unimplemented] unimplemented ldux: 2
+      instr_ldu:ldux_1  unimplemented ldux at 0x82010010
+      instr_ldu:ldux_2  unimplemented ldux at 0x82010010
+
+== lfd: 2 of 5 failing
+  [unimplemented] unimplemented lfdu: 1
+      instr_lfd:lfdu_1  unimplemented lfdu at 0x82010010
+  [unimplemented] unimplemented lfdux: 1
+      instr_lfd:lfdux_1  unimplemented lfdux at 0x82010020
+
+== lfs: 2 of 5 failing
+  [unimplemented] unimplemented lfsu: 1
+      instr_lfs:lfsu_1  unimplemented lfsu at 0x82010010
+  [unimplemented] unimplemented lfsux: 1
+      instr_lfs:lfsux_1  unimplemented lfsux at 0x82010020
+
+== lha: 2 of 5 failing
+  [unimplemented] unimplemented lhau: 1
+      instr_lha:lhau_positive  unimplemented lhau at 0x82010010
+  [unimplemented] unimplemented lhaux: 1
+      instr_lha:lhaux_1  unimplemented lhaux at 0x82010020
+
+== lhz: 2 of 5 failing
+  [unimplemented] unimplemented lhzu: 1
+      instr_lhz:lhzu_1  unimplemented lhzu at 0x82010010
+  [unimplemented] unimplemented lhzux: 1
+      instr_lhz:lhzux_1  unimplemented lhzux at 0x82010020
+
+== lmw: 2 of 2 failing
+  [unimplemented] unimplemented lmw: 2
+      instr_lmw:lmw_1  unimplemented lmw at 0x82010000
+      instr_lmw:lmw_2  unimplemented lmw at 0x82010008
+
+== lvxl128: 2 of 2 failing
+  [unimplemented] unimplemented lvxl128: 2
+      instr_lvxl128:lvxl128_1  unimplemented lvxl128 at 0x82010004
+      instr_lvxl128:lvxl128_2  unimplemented lvxl128 at 0x82010010
+
+== lwzu: 2 of 4 failing
+  [unimplemented] unimplemented lwzux: 2
+      instr_lwzu:lwzux_1  unimplemented lwzux at 0x82010010
+      instr_lwzu:lwzux_2  unimplemented lwzux at 0x82010010
+
+== lxbrx: 2 of 6 failing
+  [unimplemented] unimplemented ldbrx: 2
+      instr_lxbrx:ldbrx_1  unimplemented ldbrx at 0x82010020
+      instr_lxbrx:ldbrx_offset  unimplemented ldbrx at 0x82010020
+
+== mcrfs: 2 of 2 failing
+  [unimplemented] unimplemented mcrfs: 2
+      instr_mcrfs:mcrfs_1  unimplemented mcrfs at 0x82010004
+      instr_mcrfs:mcrfs_2  unimplemented mcrfs at 0x82010010
+
+== mfmsr: 2 of 2 failing
+  [fail] mismatch in r3: 1
+      instr_mfmsr:mfmsr_1  r3 expected 0x0000000000009030 actual 0x000000000200A000
+  [fail] mismatch in r4: 1
+      instr_mfmsr:mfmsr_2  r4 expected 0x0000000000009030 actual 0x000000000200A000
+
+== mfspr: 2 of 3 failing
+  [unimplemented] unimplemented addc: 1
+      instr_mfspr:mfspr_xer  unimplemented addc at 0x82010000
+  [unimplemented] unimplemented mfctr: 1
+      instr_mfspr:mfspr_ctr  unimplemented mfctr at 0x82010024
+
+== mfvscr: 2 of 2 failing
+  [unimplemented] unimplemented mfvscr: 1
+      instr_mfvscr:mfvscr_1  unimplemented mfvscr at 0x82010000
+  [unimplemented] unimplemented mtvscr: 1
+      instr_mfvscr:mtvscr_1  unimplemented mtvscr at 0x82010008
+
+== mtcrf: 2 of 3 failing
+  [unimplemented] unimplemented mtcrf: 2
+      instr_mtcrf:mtcrf_2  unimplemented mtcrf at 0x8201000C
+      instr_mtcrf:mtcrf_3  unimplemented mtcrf at 0x82010018
+
+== mtmsr: 2 of 2 failing
+  [unimplemented] unimplemented mtmsr: 2
+      instr_mtmsr:mtmsr_1  unimplemented mtmsr at 0x82010000
+      instr_mtmsr:mtmsr_2  unimplemented mtmsr at 0x82010008
+
+== mtspr: 2 of 3 failing
+  [unimplemented] unimplemented mfxer: 1
+      instr_mtspr:mtspr_xer  unimplemented mfxer at 0x82010004
+  [unimplemented] unimplemented mfctr: 1
+      instr_mtspr:mtspr_ctr  unimplemented mfctr at 0x82010024
+
+== stfd: 2 of 5 failing
+  [unimplemented] unimplemented stfdu: 1
+      instr_stfd:stfdu_1  unimplemented stfdu at 0x82010010
+  [unimplemented] unimplemented stfdux: 1
+      instr_stfd:stfdux_1  unimplemented stfdux at 0x82010020
+
+== stfs: 2 of 5 failing
+  [unimplemented] unimplemented stfsu: 1
+      instr_stfs:stfsu_1  unimplemented stfsu at 0x82010010
+  [unimplemented] unimplemented stfsux: 1
+      instr_stfs:stfsux_1  unimplemented stfsux at 0x82010020
+
+== sth: 2 of 5 failing
+  [unimplemented] unimplemented sthu: 1
+      instr_sth:sthu_1  unimplemented sthu at 0x82010010
+  [unimplemented] unimplemented sthux: 1
+      instr_sth:sthux_1  unimplemented sthux at 0x82010020
+
+== sthbrx: 2 of 6 failing
+  [unimplemented] unimplemented stdbrx: 2
+      instr_sthbrx:stdbrx_1  unimplemented stdbrx at 0x82010020
+      instr_sthbrx:stdbrx_offset  unimplemented stdbrx at 0x82010020
+
+== stmw: 2 of 2 failing
+  [unimplemented] unimplemented stmw: 2
+      instr_stmw:stmw_1  unimplemented stmw at 0x82010000
+      instr_stmw:stmw_2  unimplemented stmw at 0x82010008
+
+== stvlxl128: 2 of 2 failing
+  [unimplemented] unimplemented stvlxl128: 2
+      instr_stvlxl128:stvlxl128_1  unimplemented stvlxl128 at 0x82010000
+      instr_stvlxl128:stvlxl128_2  unimplemented stvlxl128 at 0x82010000
+
+== stvrxl128: 2 of 2 failing
+  [unimplemented] unimplemented stvrxl128: 2
+      instr_stvrxl128:stvrxl128_1  unimplemented stvrxl128 at 0x82010000
+      instr_stvrxl128:stvrxl128_2  unimplemented stvrxl128 at 0x82010000
+
+== stvxl128: 2 of 2 failing
+  [unimplemented] unimplemented stvxl128: 2
+      instr_stvxl128:stvxl128_1  unimplemented stvxl128 at 0x82010004
+      instr_stvxl128:stvxl128_2  unimplemented stvxl128 at 0x82010010
+
+== stwcx: 2 of 4 failing
+  [fail] mismatch in mem@0xN,r12: 2
+      instr_stwcx:stwcx_fail  r12 expected 0x0000000000000000 actual 0x0000000020000000 ; mem@0x10001000 expected 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 actual 123456780000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+      instr_stwcx:stdcx_fail  r12 expected 0x0000000000000000 actual 0x0000000020000000 ; mem@0x10001000 expected 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 actual 123456789ABCDEF000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+
+== vexptefp: 2 of 27 failing
+  [fail] mismatch in v2: 2
+      instr__gen_vexptefp:vexptefp_13_GEN  v2 expected [40000000, 40350000, 40099000, 406E0000] actual [40000000, 403504F3, 40092FE0, 406EDB40]
+      instr__gen_vexptefp:vexptefp_17_GEN  v2 expected [3F000000, 3EB50000, 3EEE0000, 3E899000] actual [3F000000, 3EB504F3, 3EEEDB40, 3E892FE0]
+
+== vmsum3fp128: 2 of 3 failing
+  [fail] mismatch in v5: 2
+      instr_vmsum3fp128:vmsum3fp128_1  v5 expected [4122A7EF, 4122A7EF, 4122A7EF, 4122A7EF] actual [4122A7F0, 4122A7F0, 4122A7F0, 4122A7F0]
+      instr_vmsum3fp128:vmsum3fp128_3  v5 expected [80000000, 80000000, 80000000, 80000000] actual [00000000, 00000000, 00000000, 00000000]
+
+== vmsum4fp128: 2 of 3 failing
+  [fail] mismatch in v5: 2
+      instr_vmsum4fp128:vmsum4fp128_1  v5 expected [41A5147A, 41A5147A, 41A5147A, 41A5147A] actual [41A5147B, 41A5147B, 41A5147B, 41A5147B]
+      instr_vmsum4fp128:vmsum4fp128_3  v5 expected [80000000, 80000000, 80000000, 80000000] actual [00000000, 00000000, 00000000, 00000000]
+
+== vpkuwus128: 2 of 2 failing
+  [unimplemented] unimplemented vpkuwus128: 2
+      instr_vpkuwus128:vpkuwus128_1  unimplemented vpkuwus128 at 0x82010000
+      instr_vpkuwus128:vpkuwus128_2  unimplemented vpkuwus128 at 0x82010000
+
+== addeo: 1 of 1 failing
+  [unimplemented] unimplemented addeo: 1
+      instr_addeo:addeo_1  unimplemented addeo at 0x82010000
+
+== lbz: 1 of 6 failing
+  [unimplemented] unimplemented lbzux: 1
+      instr_lbz:lbzux_1  unimplemented lbzux at 0x82010020
+
+== ld: 1 of 5 failing
+  [unimplemented] unimplemented ldux: 1
+      instr_ld:ldux_1  unimplemented ldux at 0x82010020
+
+== lvlxl128: 1 of 1 failing
+  [unimplemented] unimplemented lvlxl128: 1
+      instr_lvlxl128:lvlxl128_1  unimplemented lvlxl128 at 0x82010000
+
+== lvrxl128: 1 of 1 failing
+  [unimplemented] unimplemented lvrxl128: 1
+      instr_lvrxl128:lvrxl128_1  unimplemented lvrxl128 at 0x82010000
+
+== lvx_permute: 1 of 7 failing
+  [unimplemented] unimplemented vpkd3d128 type 6: 1
+      instr_lvx_permute:multiple_lvx_swizzle_permute  unimplemented vpkd3d128 type 6 at 0x82010088
+
+== lwa: 1 of 5 failing
+  [unimplemented] unimplemented lwaux: 1
+      instr_lwa:lwaux_1  unimplemented lwaux at 0x82010020
+
+== lwz: 1 of 5 failing
+  [unimplemented] unimplemented lwzux: 1
+      instr_lwz:lwzux_1  unimplemented lwzux at 0x82010020
+
+== stb: 1 of 5 failing
+  [unimplemented] unimplemented stbux: 1
+      instr_stb:stbux_1  unimplemented stbux at 0x82010020
+
+== std: 1 of 5 failing
+  [unimplemented] unimplemented stdux: 1
+      instr_std:stdux_1  unimplemented stdux at 0x82010020
+
+== subfco: 1 of 1 failing
+  [unimplemented] unimplemented subfco: 1
+      instr_subfco:subfco_1  unimplemented subfco at 0x82010000
+
+== vexptefp128: 1 of 5 failing
+  [fail] mismatch in v5: 1
+      instr_vexptefp128:vexptefp128_3  v5 expected [3FB50000, 3F980000, 3F8C0000, 3F860000] actual [3FB504F3, 3F9837F0, 3F8B95C2, 3F85AAC3]
+
+== vlogefp128: 1 of 5 failing
+  [fail] mismatch in v5: 1
+      instr_vlogefp128:vlogefp128_5  v5 expected [3F000000, 3F160000, 3F40A000, 3F630000] actual [3EFFFFFF, 3F15C01A, 3F400000, 3F6334DB]
+
+== vpkswus128: 1 of 1 failing
+  [unimplemented] unimplemented vpkswus128: 1
+      instr_vpkswus128:vpkswus128_1  unimplemented vpkswus128 at 0x82010000
+
+== vpkuhus128: 1 of 1 failing
+  [unimplemented] unimplemented vpkuhus128: 1
+      instr_vpkuhus128:vpkuhus128_1  unimplemented vpkuhus128 at 0x82010000
+
+== vrlw128: 1 of 1 failing
+  [unimplemented] unimplemented vrlw128: 1
+      instr_vrlw128:vrlw128_1  unimplemented vrlw128 at 0x82010000
+
+== vslo128: 1 of 1 failing
+  [unimplemented] unimplemented vslo128: 1
+      instr_vslo128:vslo128_1  unimplemented vslo128 at 0x82010000
+
+== vsro128: 1 of 1 failing
+  [unimplemented] unimplemented vsro128: 1
+      instr_vsro128:vsro128_1  unimplemented vsro128 at 0x82010000
