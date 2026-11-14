@@ -750,3 +750,48 @@ A review workflow (3 search angles, every candidate checked by a refuter) looked
 **Conclusion:** blanket non-volatile is not shippable. If it measures faster, the shippable form is an option that keeps loads volatile inside any call-free, barrier-free cycle (the scan found 5,471 such cycles) and drops volatile elsewhere.
 
 The R2 config is saved here as `fm2_tu4_r2.toml`.
+
+## Step 26 (2026-11-14 14:42–15:30, FX): R3 + non-volatile loads/stores (step 21 redone against HEAD)
+
+- Build: R3 output with `fm2_nonvolatile.h` force-included into the generated code only (new port option `-DFM2_PPC_FORCE_INCLUDE`, fm2-port dac0522). Exe 43.6 MB (R3 45.6).
+- A/B as before, all 21 runs valid, no Fatal or crash, no hang.
+
+| median of 10 | A (XenonRecomp) | R3 + non-volatile | Mann-Whitney |
+|---|---|---|---|
+| fps | 82.95 | 84.85, +2.3% | p = 0.36 |
+| 1% low | 51.55 | 51.70, +0.3% | p = 0.55 |
+| 0.1% low | 41.05 | 40.80, −0.6% | p = 0.88 |
+| Timeline segment 1 | 61.0 | 62.0 (every run), +1.6% | p = 0.001 |
+
+**Result:** dropping volatile adds nothing over R2/R3. Combined with the four spin-wait hazards above, item 5 step 2 stays parked; the loop-safe variant isn't worth building.
+
+## Step 27 (2026-11-14 afternoon): drop the LR store before inlined save/restore helpers (R4)
+
+- With `inline_register_thunks` and `elide_return_lr` both on, a `bl` to a __save*/__rest* helper that gets inlined no longer stores its return address to `ctx.lr`. The helpers never read LR. The store is kept if any `mflr` comes later in the function.
+- FM2: 12,322 stores dropped; that is the only difference from R3 (`out/ppc_tu4_r4`). Exe 45.43 MB (R3 45.60).
+- Review (2 reviewers): no defects. A control-flow walk of all 11,604 affected functions found no path from a dropped store to any LR read (40,913 mflr, 1 blrl, 7 setjmp copies), return, or tail call before LR is written again. The first version stopped scanning at the next call; the reviewers noted a branch over that call could reach an mflr (no FM2 case), so the scan now covers the rest of the function. FM2 output is identical either way.
+- FX A/B ab7 (A against R4) started 15:30.
+
+## Step 28 (2026-11-14 15:30–16:18, FX): R4 against A, and the pooled result
+
+ab7, A against R4, all 21 runs valid, no Fatal or crash:
+
+| median of 10 | A | R4 | Mann-Whitney |
+|---|---|---|---|
+| fps | 82.85 | 85.10, +2.7% | p = 0.55 |
+| 1% low | 50.90 | 51.75, +1.7% | p = 0.31 |
+| Timeline segment 1 | 61.0 | 61.5, +0.8% | p = 0.19 |
+
+**Pooled, ab4–ab7** (A: 40 runs; ReXenon builds that all carry the R2 options, R2/R3/R3+NV/R4: 40 runs):
+
+| | A (XenonRecomp) | ReXenon | Mann-Whitney |
+|---|---|---|---|
+| fps | 81.45 | 84.90, +4.2% | p = 0.011 |
+| 1% low | 51.40 | 51.90, +1.0% | p = 0.0012 |
+| Timeline segment 1 | 61.0 | 62.0, +1.6% | p < 0.0001 |
+
+**Conclusion:** ReXenon with the R2 options is about 4% faster than XenonRecomp on the FX, with better 1% lows. The extras (thunk inlining, non-volatile, R4's LR stores) are each within the noise; one 10-round A/B can't resolve less than about 3% on the average (sd ≈ 5 fps). The profile of the guest main thread is flat (top function 0.42 of 11.6 ms), so further gains need codegen-wide changes.
+
+**For switching FM2:** R2 options are reviewed and measured. R4 is the most-optimised output with no review findings. Still open from step 23: a hand test (showroom, paint editor, replays, 1440p).
+
+FX restored: fm2-rx.exe removed; perf-one.txt set to one `base` line (the earlier backup was lost while C: was full; it only held my own lk list).

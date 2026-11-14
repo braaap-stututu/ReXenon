@@ -939,6 +939,9 @@ bool Recompiler::Recompile(
             return "ea";
         };
 
+    // Set by printFunctionCall when it inlined a save/restore helper instead of calling it.
+    bool callInlined = false;
+
     // A store followed by eieio is an MMIO store. Don't read past the function's end.
     auto mmioStore = [&]() -> bool
         {
@@ -1029,6 +1032,7 @@ bool Recompiler::Recompile(
                         (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0) &&
                         printInlineThunk(address, targetSymbol->size, targetSymbol->name, tail))
                     {
+                        callInlined = true;
                     }
                     else if (emptyFunctions.count(address))
                     {
@@ -2085,12 +2089,33 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_BL:
+    {
+        const size_t lrStart = out.size();
         if (!config.skipLr)
             println("\tctx.lr = 0x{:X};", base + 4);
+        const size_t lrEnd = out.size();
+        callInlined = false;
         printFunctionCall(insn.operands[0], false);
+        // elide_return_lr: an inlined save/restore helper never reads LR, so its return address is
+        // dead unless the function reads LR again. Any mflr later in the function (whatever path
+        // reaches it) keeps the store. Diagnostics may see a stale LR.
+        if (callInlined && config.elideReturnLr && !config.skipLr && !inliningThunk)
+        {
+            bool lrRead = false;
+            for (uint32_t a = base + 4; a < fn.base + fn.size && !lrRead; a += 4)
+            {
+                const auto* p = reinterpret_cast<const uint32_t*>(image.Find(a));
+                if (p == nullptr)
+                    break;
+                lrRead = (ByteSwap(*p) & 0xFC1FFFFF) == 0x7C0802A6; // mflr
+            }
+            if (!lrRead)
+                out.replace(lrStart, lrEnd - lrStart, "\t// ctx.lr not stored: helper inlined\n");
+        }
         if (!emptyFunctions.count(insn.operands[0]))
             csrState = CSRState::Unknown; // the call could change it
         break;
+    }
 
     case PPC_INST_BLE:
         printConditionalBranch(true, "gt");
