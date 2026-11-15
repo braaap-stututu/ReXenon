@@ -795,3 +795,138 @@ ab7, A against R4, all 21 runs valid, no Fatal or crash:
 **For switching FM2:** R2 options are reviewed and measured. R4 is the most-optimised output with no review findings. Still open from step 23: a hand test (showroom, paint editor, replays, 1440p).
 
 FX restored: fm2-rx.exe removed; perf-one.txt set to one `base` line (the earlier backup was lost while C: was full; it only held my own lk list).
+
+## Step 29 (2026-11-14 evening): r14-r31 as locals (R5), and code layout as a confound
+
+**What R5 is:** R4 plus `non_volatile_as_local`, which keeps r14-r31, f14-f31, v14-v31 and v64-v127 as per-function C++ locals.
+- Functions that read a non-volatile register before writing it stay on ctx; these are "context functions". Direct calls and fall-throughs into them from local-register code are wrapped: save ctx, copy the locals in, call, copy back, restore.
+- The analysis is an interprocedural must-be-written dataflow (`XenonRecomp/nonvolatile_context.cpp`). New config keys: `host_functions` and `context_functions`. The configured setjmp/longjmp addresses count as host functions.
+- FM2 has 38 context functions: 30 SEH funclets, 7 setjmp callers and 1 listed (sub_8274C960, the shader patcher, whose FM2_RECORD_CONFIGS hook reads r22-r31). There are 41 wrapped call sites.
+- The exe is 41.0 MB, against R4's 45.4 MB. It boots, races and quits with no crash.
+
+**ab8, A against R5a** (R5 without the listed patcher), 10 rounds: R5a looked slower. fps 78.0 vs 84.7 (p=0.059); segment 1 59 vs 61 (p<0.001).
+
+**ab9, three arms, 7 rounds:** A; R5b (the patcher in `context_functions`); R5a again.
+
+| median | A | R5b | R5a |
+|---|---|---|---|
+| fps | 83.8 | 83.0 | 74.9 |
+| Timeline segment 1 | 60 | 62 | 58 |
+
+Each arm's segment-1 range: A 58–61, R5b 59–62, R5a 56–59.
+
+**Code layout, not R5:**
+- With FM2_RECORD_CONFIGS off, R5a and R5b behave identically. Their only source difference is one chunk, ppc_recomp.100.cpp (the patcher and its 3 callers).
+- Rebuilding R5a reproduces the ab8 exe exactly (4 header bytes differ), so its pdb can be compared with R5b's.
+- In R5b, 44,997 of 109,992 functions sit 2016 bytes later than in R5a. 2016 isn't a multiple of 64, so every hot function after that chunk changes its cache-line alignment.
+- So a one-chunk change moves fps by about 3–10% on the FX. That is as large as every effect measured in steps 21–28, so those A/Bs carry the same layout noise. The pooled "+4.2%" for the R2 options stands as measured, but isn't attributable to codegen alone.
+- Profiles (FM2_SAMPLE_THREAD=3, 3 runs each) of A against R5b: the main thread's guest code is flat. The register save/restore helpers vanish in R5 (-0.25 ms/frame), and nothing grows by more than 0.08 ms.
+
+**Method fix:** fm2-port CMake `-DFM2_PPC_ALIGN_FUNCTIONS=64` (uncommitted) puts every generated function on a 64-byte boundary, so a change to one chunk can't shift the alignment of the code after it. Next: A, R4 and R5b all built aligned, then an FX A/B.
+
+## Step 30 (2026-11-14 20:50–22:00, FX): ab10, aligned builds
+
+Arms: A unaligned (the HEAD XenonRecomp exe), and A, R4 and R5b each built with `-DFM2_PPC_ALIGN_FUNCTIONS=64`. One warm-up run per new exe, then 7 rounds. All 31 runs valid, no Fatal.
+
+| median of 7 | A | A64 | R4-64 | R5-64 |
+|---|---|---|---|---|
+| fps | 84.9 | 75.5 | 79.7 | 81.2 |
+| 1% low | 51.7 | 48.8 | 51.1 | 50.3 |
+| Timeline segment 1 | 61 (all 61) | 58 (58–59) | 61 (61–62) | 61 (60–62) |
+
+**Result:**
+- Aligning XenonRecomp's own code costs 5% on segment 1 (p=0.002), although the code is unchanged. Alignment is just another layout, and A64's is an unlucky one.
+- Among the aligned builds, R4 and R5 beat A by ~5% on segment 1. Unaligned, they tie with A (steps 28 and 29).
+- So on the FX, one exe's fixed code layout moves fps by about ±5%. That is larger than any codegen difference measured so far: R2/R4/R5 against XenonRecomp. A single exe per arm can't separate codegen from layout, and that applies to every A/B in steps 21–30.
+
+**What a layout-independent verdict needs:** several layouts per arm, e.g. 4 builds each with a different leading pad or link order, each run 2–3 times; then compare arms across layouts. Alternatively a profile-ordered link (hot functions packed together), which would both remove the lottery and possibly be a gain in itself. That is not the same as the parked PGO, but close to it.
+
+## Step 31 (2026-11-14 22:10 – 2026-11-15 00:40, FX): multi-layout A/B, the layout-independent verdict
+
+**Method:**
+- fm2-port CMake `-DFM2_PPC_LAYOUT_SEED=<n>` (uncommitted) links the generated functions in a random order fixed by n.
+- `tools/layout_order.py` writes the linker `/ORDER` file covering all ~101k `sub_`/`__imp__sub_` symbols. Every chunk has per-function sections (clang-cl /O2 implies /Gy), so a new layout costs only a relink.
+- Arms: A (XenonRecomp), R4 and R5b, unaligned as shipped. Layouts 1–4 for each arm, the same seed meaning the same shuffle.
+- Run order: one warm-up per exe, then 3 rounds, in two batches of 6 exes because of the FX's disk. 72 measured runs, all valid, no Fatal.
+
+| Timeline segment 1, median per layout | L1 | L2 | L3 | L4 | all 12 runs |
+|---|---|---|---|---|---|
+| A | 62 | 62 | 59 | 61 | 61.5 |
+| R4 | 62 | 59 | 62 | 62 | 62.0 (p=0.54) |
+| R5 | 59 | 60 | 61 | 63 | 60.5 (p=0.73) |
+
+| fps, median of 12 | A 85.25 | R4 81.95 (−3.9%, p=0.13) | R5 84.25 (−1.2%, p=0.37) |
+|---|---|---|---|
+
+**Verdict:**
+- Segment 1 is a property of the layout. Runs of one layout agree to ±1, for example 59/59/59. Layouts of the same code range from 59 to 63, about 7%.
+- Across layouts, neither R4 nor R5 differs measurably from XenonRecomp; the average fps differences are inside the noise.
+- So ReXenon's codegen options (R2/R4 options, thunk inlining, r14–r31 as locals) give no FX fps gain resolvable at about 2–3%. The "+4.2% pooled" of step 28 and every single-exe A/B of steps 21–30 were layout effects.
+- ReXenon's value for FM2 stays what the roadmap's research predicted: correctness (fail-loud, exact fixes) and zero-config setup for new games, not speed.
+
+**The lever that does exist is layout itself:** one exe's layout is worth up to ~7% on the FX. A profile-guided order (hot functions packed together and in call order) would aim for the good end deliberately, for XenonRecomp or ReXenon output alike. It is a relink, with no codegen change. This is distinct from the parked PGO (no gain on the 4070, which isn't CPU-bound), but needs its own FX test.
+
+FX restored: test exes removed, perf-one.txt is `base`, 812 MB free.
+
+## Step 32 (2026-11-15 09:00 – 11:30, FX): hot-first link order, and what the "layout lottery" really is
+
+**Hot-first order (no gain):**
+- Profile: the sampler got `FM2_SAMPLE_THREAD=all` (every guest thread), `FM2_SAMPLE_BENCH=1` (only while the benchmark records) and `FM2_SAMPLE_OUT=<file>` (cumulative counts per function). Symbols need `_NT_SYMBOL_PATH` set to the exe folder on the FX, because the game's working folder isn't the exe's.
+- Three profiled races. One sat at a flat 50 fps for the whole race (a different state) and was dropped. The other two agree: 94% of samples fall in the other's set. Merged: 2,348 sampled generated functions, a 3.2 MB block out of 25 MB.
+- `tools/layout_order.py <dir> <seed> <out> <profile> count|address` puts the sampled functions first and shuffles the rest. CMake: `-DFM2_PPC_LAYOUT_PROFILE`, `-DFM2_PPC_LAYOUT_HOT`.
+- 24 timed FX runs. XenonRecomp random layouts a-L1..L4 against hot-first h1 (count order, cold seed 1), h2 (count order, cold seed 2) and h3 (address order).
+  - Seg1: a 61/62/62/62, h 60/63/62. Fps all runs: 84.95 against 82.10 (p=0.72).
+  - Hot-first is no better than a random order.
+
+**The control that changed the picture:**
+- h1 and h2 have an identical hot block at identical addresses, and every generated function is 16-byte aligned, so host code doesn't move either. Yet seg1 was 60 against 63.
+- Same bytes, different file: h1 copied to fm2-h1b.exe. h1 scored 59–60 in all 6 runs; h1b scored 62 in all 4.
+- Fixed load address: `-DFM2_FIXED_BASE=<addr>` (uncommitted CMake) links with `/DYNAMICBASE:NO /BASE:<addr>`. At 0x7FF600000000 every exe scored 62 in 12 of 12 runs (one 61): F1 = h1 layout, F1b = its copy, F1s = base +64 KB, F2 = h2 layout.
+- Decisive test: F1 linked at h1's actual ASLR address (0x7FF7B1780000, read from the running process). It scored 60/59/59, warm-up 60. F1 at 0x7FF600000000 scored 62/62/62.
+
+**Verdict:**
+- The FX's 59–63 spread is the exe's load address, not code layout. ASLR picks it per image file, once per boot, so runs of one file agree, while a rebuild or even a renamed copy draws a new address.
+- A 64 KB shift doesn't matter, so the relevant bits are above bit 16. Mechanism unknown: a Piledriver fetch, branch-predictor or cache-index aliasing with something at fixed or per-boot addresses.
+- With a fixed base, two different link orders measure the same. Code layout itself is nearly free on the FX.
+- Step 31's codegen verdict (no measurable gain) stands. It averaged over addresses rather than layouts, but the averaging is equally valid.
+- Released builds use ASLR, so FX-like players get a ±3–5% draw that changes each reboot.
+
+**Next options:**
+- Run A/Bs at a fixed base: the noise floor drops to ±1 on seg1, so a fixed-base A vs R4/R5 retest could resolve 1–2%.
+- Search bases on the FX for a consistently good one (63+).
+- Check whether the effect exists on the 4070 or other CPUs before any shipping change.
+
+FX restored: test exes removed, perf-one.txt is `base`, 811 MB free.
+
+## Step 33 (2026-11-15 12:40 – 13:40, FX): fixed-base A/B, A against R4 and R5
+
+**Method:**
+- `build/rx/fixbase.cmd <ppc dir> <label> <base>` builds the shipped link order (no layout seed) with `-DFM2_FIXED_BASE`.
+- Arms: A (XenonRecomp), R4 and R5b, each at base 0x7FF600000000 ("G", where every step 32 exe scored 62) and at 0x7FF7B1780000 ("Bad", where step 32's F1 scored 59–60).
+- One warm-up per exe, then 3 rounds in three different orders. All 24 runs valid, no Fatal. The FX was not rebooted between steps 32 and 33 (last boot 2026-11-05).
+
+| Timeline segment 1 | rounds | warm-up |
+|---|---|---|
+| A at G | 61 61 62 | 61 |
+| A at Bad | 61 61 61 | 61 |
+| R4 at G | 58 61 61 | 61 |
+| R4 at Bad | 62 61 61 | 61 |
+| R5 at G | 62 61 61 | 61 |
+| R5 at Bad | 61 61 62 | 62 |
+
+- Seg1 median is 61 in every arm (p ≥ 0.28 for every pair). R4 at G's 58 was one run with a hitch (1% low 29).
+- Fps, pooled over both bases (6 runs each): A 84.6, R4 79.5 (−6.0%, p=0.20), R5 84.3 (−0.4%, p=0.52). The average has sd ≈ 5, so it resolves nothing.
+- 1% low pooled: A 52.05, R4 51.25 (−1.5%, p=0.045), R5 51.65 (p=0.63). This is one marginal value among about 20 comparisons.
+
+**Verdict:**
+- At a fixed base, with seg1 noise at ±1 (about 1.6%), R4 and R5 tie with XenonRecomp. This confirms step 31 with a tighter bound: ReXenon's codegen options give no FX gain above about 2%.
+
+**Correction to step 32:**
+- The "bad" base is not bad for the shipped link order: A, R4 and R5 all scored 61 there.
+- What step 32 measured was the absolute address of the hot code, which is base + layout. F1 (the h1 hot-first layout) at 0x7FF7B1780000 was slow; the shipped order at the same base is not.
+- Step 32's "layout is nearly free at a fixed base" rested on h1 against h2, and those two have an identical hot block. So it never varied the hot code's addresses, and it doesn't hold as stated.
+- Better statement: the FX's ±3–5% comes from where the hot code lands in the address space. ASLR moves that per file and per boot; a relink moves it too.
+- Mechanism still unknown. A fixed base still gives a stable A/B within one link order, but it doesn't pick a "good" exe for other link orders.
+- All six arms scored 61 today against step 32's 62 at G. Some slow drift on the FX, unexplained.
+
+FX restored: test exes removed, perf-one.txt is `base`, 841 MB free.
