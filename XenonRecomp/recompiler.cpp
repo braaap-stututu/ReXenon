@@ -845,7 +845,7 @@ bool Recompiler::Recompile(
     auto r = [&](size_t index)
         {
             if ((config.nonArgumentRegistersAsLocalVariables && (index == 0 || index == 2 || index == 11 || index == 12)) || 
-                (config.nonVolatileRegistersAsLocalVariables && index >= 14))
+                (config.nonVolatileRegistersAsLocalVariables && !emittingInContext && index >= 14))
             {
                 localVariables.r[index] = true;
                 return fmt::format("r{}", index);
@@ -856,7 +856,7 @@ bool Recompiler::Recompile(
     auto f = [&](size_t index)
         {
             if ((config.nonArgumentRegistersAsLocalVariables && index == 0) ||
-                (config.nonVolatileRegistersAsLocalVariables && index >= 14))
+                (config.nonVolatileRegistersAsLocalVariables && !emittingInContext && index >= 14))
             {
                 localVariables.f[index] = true;
                 return fmt::format("f{}", index);
@@ -867,7 +867,7 @@ bool Recompiler::Recompile(
     auto v = [&](size_t index)
         {
             if ((config.nonArgumentRegistersAsLocalVariables && (index >= 32 && index <= 63)) ||
-                (config.nonVolatileRegistersAsLocalVariables && ((index >= 14 && index <= 31) || (index >= 64 && index <= 127))))
+                (config.nonVolatileRegistersAsLocalVariables && !emittingInContext && ((index >= 14 && index <= 31) || (index >= 64 && index <= 127))))
             {
                 localVariables.v[index] = true;
                 return fmt::format("v{}", index);
@@ -1024,9 +1024,14 @@ bool Recompiler::Recompile(
 
                 if (targetSymbol != image.symbols.end() && targetSymbol->address == address && targetSymbol->type == Symbol_Function)
                 {
-                    if (config.nonVolatileRegistersAsLocalVariables && (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0))
+                    if (config.nonVolatileRegistersAsLocalVariables && !emittingInContext &&
+                        (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0))
                     {
-                        // print nothing
+                        // The registers are locals: nothing to save or restore. __savegprlr also
+                        // stores the return address (r12) at -8(r1); keep that for guest stack walks.
+                        if (targetSymbol->name.find("__savegprlr") == 0)
+                            println("\tPPC_STORE_U32({}.u32 + -8, {}.u32);", r(1), r(12));
+                        callInlined = true;
                     }
                     else if (config.inlineRegisterThunks &&
                         (targetSymbol->name.find("__rest") == 0 || targetSymbol->name.find("__save") == 0) &&
@@ -1037,6 +1042,28 @@ bool Recompiler::Recompile(
                     else if (emptyFunctions.count(address))
                     {
                         println("	// {} is only blr", targetSymbol->name);
+                    }
+                    else if (config.nonVolatileRegistersAsLocalVariables && !emittingInContext &&
+                        contextFunctions.count(address))
+                    {
+                        const NvSet& regs = contextFunctions.at(address);
+                        std::vector<std::string> names;
+                        for (size_t k = 0; k < 118; ++k)
+                        {
+                            if (!regs.test(k))
+                                continue;
+                            if (k < 18) names.push_back(r(k + 14));
+                            else if (k < 36) names.push_back(f(k - 18 + 14));
+                            else if (k < 54) names.push_back(v(k - 36 + 14));
+                            else names.push_back(v(k - 54 + 64));
+                        }
+                        println("\t{{ // {} keeps these registers in ctx", targetSymbol->name);
+                        for (auto& n : names)
+                            println("\t\tconst auto saved_{0} = ctx.{0}; ctx.{0} = {0};", n);
+                        println("\t\t{}(ctx, base);", targetSymbol->name);
+                        for (auto& n : names)
+                            println("\t\t{0} = ctx.{0}; ctx.{0} = saved_{0};", n);
+                        println("\t}}");
                     }
                     else
                     {
@@ -4163,6 +4190,9 @@ bool Recompiler::Recompile(const Function& fn)
 
     println("PPC_FUNC_IMPL(__imp__{}) {{", name);
     println("\tPPC_FUNC_PROLOGUE();");
+    emittingInContext = config.nonVolatileRegistersAsLocalVariables && contextFunctions.count(fn.base);
+    if (emittingInContext)
+        println("\t// non-volatile registers stay in ctx here (see ppc_context_functions.txt)");
 
     auto switchTable = config.switchTables.end();
     bool allRecompiled = true;
@@ -4246,7 +4276,30 @@ bool Recompiler::Recompile(const Function& fn)
             if (next != image.symbols.end() && next->address == end && next->type == Symbol_Function)
             {
                 println("\t// falls through into {}", next->name);
-                println("\t{}(ctx, base);", next->name);
+                auto ctxFn = contextFunctions.find(end);
+                if (config.nonVolatileRegistersAsLocalVariables && !emittingInContext && ctxFn != contextFunctions.end())
+                {
+                    // Same copy to ctx and back as printFunctionCall does for a call.
+                    std::vector<std::string> names;
+                    for (size_t k = 0; k < 118; ++k)
+                    {
+                        if (!ctxFn->second.test(k))
+                            continue;
+                        if (k < 18) { localVariables.r[k + 14] = true; names.push_back(fmt::format("r{}", k + 14)); }
+                        else if (k < 36) { localVariables.f[k - 18 + 14] = true; names.push_back(fmt::format("f{}", k - 18 + 14)); }
+                        else if (k < 54) { localVariables.v[k - 36 + 14] = true; names.push_back(fmt::format("v{}", k - 36 + 14)); }
+                        else { localVariables.v[k - 54 + 64] = true; names.push_back(fmt::format("v{}", k - 54 + 64)); }
+                    }
+                    println("\t{{ // {} keeps these registers in ctx", next->name);
+                    for (auto& n : names)
+                        println("\t\tconst auto saved_{0} = ctx.{0}; ctx.{0} = {0};", n);
+                    println("\t\t{}(ctx, base);", next->name);
+                    for (auto& n : names)
+                        println("\t\t{0} = ctx.{0}; ctx.{0} = saved_{0};", n);
+                    println("\t}}");
+                }
+                else
+                    println("\t{}(ctx, base);", next->name);
                 println("\treturn;");
                 ++fallThroughs;
             }
@@ -4312,6 +4365,7 @@ bool Recompiler::Recompile(const Function& fn)
 
     out += tempString;
 
+    emittingInContext = false;
     return allRecompiled;
 }
 
@@ -4342,7 +4396,11 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
         if (config.nonArgumentRegistersAsLocalVariables)
             println("#define PPC_CONFIG_NON_ARGUMENT_AS_LOCAL");   
         if (config.nonVolatileRegistersAsLocalVariables)
+        {
             println("#define PPC_CONFIG_NON_VOLATILE_AS_LOCAL");
+            // The context functions (nonvolatile_context.cpp) still need the fields.
+            println("#define PPC_CONFIG_NON_VOLATILE_IN_CONTEXT");
+        }
 
         println("");
 
@@ -4460,6 +4518,9 @@ bool Recompiler::Recompile(const std::filesystem::path& headerFilePath)
         SaveCurrentOutData("ppc_elided_functions.txt");
         fmt::println("Eliding calls to {} empty functions", sorted.size());
     }
+
+    if (config.nonVolatileRegistersAsLocalVariables)
+        FindContextFunctions();
 
     if (config.chunkByAddress != 0)
     {

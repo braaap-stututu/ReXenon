@@ -404,7 +404,7 @@ struct alignas(0x40) PPCContext
     PPCRegister r12;
 #endif
     PPCRegister r13;
-#ifndef PPC_CONFIG_NON_VOLATILE_AS_LOCAL
+#if !defined(PPC_CONFIG_NON_VOLATILE_AS_LOCAL) || defined(PPC_CONFIG_NON_VOLATILE_IN_CONTEXT)
     PPCRegister r14;
     PPCRegister r15;
     PPCRegister r16;
@@ -468,7 +468,7 @@ struct alignas(0x40) PPCContext
     PPCRegister f11;
     PPCRegister f12;
     PPCRegister f13;
-#ifndef PPC_CONFIG_NON_VOLATILE_AS_LOCAL
+#if !defined(PPC_CONFIG_NON_VOLATILE_AS_LOCAL) || defined(PPC_CONFIG_NON_VOLATILE_IN_CONTEXT)
     PPCRegister f14;
     PPCRegister f15;
     PPCRegister f16;
@@ -503,7 +503,7 @@ struct alignas(0x40) PPCContext
     PPCVRegister v11;
     PPCVRegister v12;
     PPCVRegister v13;
-#ifndef PPC_CONFIG_NON_VOLATILE_AS_LOCAL
+#if !defined(PPC_CONFIG_NON_VOLATILE_AS_LOCAL) || defined(PPC_CONFIG_NON_VOLATILE_IN_CONTEXT)
     PPCVRegister v14;
     PPCVRegister v15;
     PPCVRegister v16;
@@ -557,7 +557,7 @@ struct alignas(0x40) PPCContext
     PPCVRegister v62;
     PPCVRegister v63;
 #endif
-#ifndef PPC_CONFIG_NON_VOLATILE_AS_LOCAL
+#if !defined(PPC_CONFIG_NON_VOLATILE_AS_LOCAL) || defined(PPC_CONFIG_NON_VOLATILE_IN_CONTEXT)
     PPCVRegister v64;
     PPCVRegister v65;
     PPCVRegister v66;

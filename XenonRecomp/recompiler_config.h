@@ -57,6 +57,13 @@ struct RecompilerConfig
     // exact at function entry.
     bool elideReturnLr = false;
     std::unordered_set<uint32_t> keepFunctions;
+    // Functions the port replaces with host code (hooks). non_volatile_as_local's analysis
+    // doesn't look at their guest code, and treats calls to them as ordinary calls. List
+    // any hooked routine that switches register state, such as a fiber switch.
+    std::unordered_set<uint32_t> hostFunctions;
+    // Functions to keep on the context whatever the analysis says: a hook that reads its
+    // caller's non-volatile registers (ctx.r14+) must be listed, so its callers copy them to ctx.
+    std::unordered_set<uint32_t> forcedContextFunctions;
     // Guest address of the indirect-call table (8 bytes per 4-byte code word, i.e. 2x PPC_CODE_SIZE).
     // 0 = right after the image. See the note the generator prints about the displacement.
     uint32_t functionTableAddress = 0;

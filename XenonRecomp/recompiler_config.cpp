@@ -38,6 +38,32 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
         dataFunctionStarts = main["data_function_starts"].value_or(false);
         chunkByAddress = main["chunk_by_address"].value_or(0u);
         emitAnalysisPath = main["emit_analysis_path"].value_or<std::string>("");
+        if (auto forcedArray = main["context_functions"].as_array())
+        {
+            for (auto& entry : *forcedArray)
+            {
+                auto address = entry.value<uint32_t>();
+                if (!address)
+                {
+                    fmt::println("ERROR: context_functions entries must be 32-bit addresses (integers, not strings)");
+                    std::exit(1);
+                }
+                forcedContextFunctions.emplace(*address);
+            }
+        }
+        if (auto hostArray = main["host_functions"].as_array())
+        {
+            for (auto& entry : *hostArray)
+            {
+                auto address = entry.value<uint32_t>();
+                if (!address)
+                {
+                    fmt::println("ERROR: host_functions entries must be 32-bit addresses (integers, not strings)");
+                    std::exit(1);
+                }
+                hostFunctions.emplace(*address);
+            }
+        }
         if (auto keepArray = main["keep_functions"].as_array())
         {
             for (auto& keep : *keepArray)
