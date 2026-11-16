@@ -17,7 +17,8 @@ add_executable(ReXenonTestDriver
     "assembler.cpp"
     "ppc_tables.c"
     "${XENONRECOMP_ROOT}/recompiler.cpp"
-    "${XENONRECOMP_ROOT}/recompiler_config.cpp")
+    "${XENONRECOMP_ROOT}/recompiler_config.cpp"
+    "${XENONRECOMP_ROOT}/nonvolatile_context.cpp")
 
 target_include_directories(ReXenonTestDriver PRIVATE ${XENONRECOMP_ROOT} ${CMAKE_CURRENT_SOURCE_DIR})
 

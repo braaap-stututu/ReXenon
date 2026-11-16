@@ -33,20 +33,48 @@
 
 #define PPC_FUNC_PROLOGUE() __builtin_assume(((size_t)base & 0x1F) == 0)
 
+// Guest memory accesses. Relaxed atomics by default: each access is emitted once, at its width and in program
+// order (never merged, split, removed or hoisted out of a spin loop), like volatile, but unlike volatile they
+// don't make the compiler reload every ctx register after each access. (clang-cl compiles volatile with MSVC
+// acquire/release semantics, which blocks all motion of other memory accesses around it.) Guest ordering comes
+// from lwsync/sync/eieio as on the console. Define PPC_VOLATILE_GUEST_ACCESS for XenonRecomp's volatile accesses.
+#ifndef PPC_GUEST_LOAD
+#ifdef PPC_VOLATILE_GUEST_ACCESS
+#define PPC_GUEST_LOAD(T, p) (*(volatile T*)(p))
+#define PPC_GUEST_STORE(T, p, v) (*(volatile T*)(p) = (v))
+#else
+#define PPC_GUEST_LOAD(T, p) __atomic_load_n((T*)(p), __ATOMIC_RELAXED)
+#define PPC_GUEST_STORE(T, p, v) __atomic_store_n((T*)(p), (T)(v), __ATOMIC_RELAXED)
+#endif
+#endif
+
+// Guest vector accesses (lvx, lvlx, lvrx, stvx). Volatile, so the compiler can't merge, remove or reuse them across
+// the relaxed scalar accesses (a vector load re-read after a flag spin loop must be read again). A 16-byte volatile
+// is a plain volatile under clang-cl, not acquire/release.
+#ifndef PPC_GUEST_VLOAD
+#ifdef PPC_VOLATILE_GUEST_ACCESS
+#define PPC_GUEST_VLOAD(p) simde_mm_load_si128((simde__m128i*)(p))
+#define PPC_GUEST_VSTORE(p, v) simde_mm_store_si128((simde__m128i*)(p), (v))
+#else
+#define PPC_GUEST_VLOAD(p) (*(volatile simde__m128i*)(p))
+#define PPC_GUEST_VSTORE(p, v) (*(volatile simde__m128i*)(p) = (v))
+#endif
+#endif
+
 #ifndef PPC_LOAD_U8
-#define PPC_LOAD_U8(x) *(volatile uint8_t*)(base + (x))
+#define PPC_LOAD_U8(x) PPC_GUEST_LOAD(uint8_t, base + (x))
 #endif
 
 #ifndef PPC_LOAD_U16
-#define PPC_LOAD_U16(x) __builtin_bswap16(*(volatile uint16_t*)(base + (x)))
+#define PPC_LOAD_U16(x) __builtin_bswap16(PPC_GUEST_LOAD(uint16_t, base + (x)))
 #endif
 
 #ifndef PPC_LOAD_U32
-#define PPC_LOAD_U32(x) __builtin_bswap32(*(volatile uint32_t*)(base + (x)))
+#define PPC_LOAD_U32(x) __builtin_bswap32(PPC_GUEST_LOAD(uint32_t, base + (x)))
 #endif
 
 #ifndef PPC_LOAD_U64
-#define PPC_LOAD_U64(x) __builtin_bswap64(*(volatile uint64_t*)(base + (x)))
+#define PPC_LOAD_U64(x) __builtin_bswap64(PPC_GUEST_LOAD(uint64_t, base + (x)))
 #endif
 
 // TODO: Implement.
@@ -70,19 +98,19 @@
 #endif
 
 #ifndef PPC_STORE_U8
-#define PPC_STORE_U8(x, y) *(volatile uint8_t*)(base + (x)) = (y)
+#define PPC_STORE_U8(x, y) PPC_GUEST_STORE(uint8_t, base + (x), uint8_t(y))
 #endif
 
 #ifndef PPC_STORE_U16
-#define PPC_STORE_U16(x, y) *(volatile uint16_t*)(base + (x)) = __builtin_bswap16(y)
+#define PPC_STORE_U16(x, y) PPC_GUEST_STORE(uint16_t, base + (x), __builtin_bswap16(y))
 #endif
 
 #ifndef PPC_STORE_U32
-#define PPC_STORE_U32(x, y) *(volatile uint32_t*)(base + (x)) = __builtin_bswap32(y)
+#define PPC_STORE_U32(x, y) PPC_GUEST_STORE(uint32_t, base + (x), __builtin_bswap32(y))
 #endif
 
 #ifndef PPC_STORE_U64
-#define PPC_STORE_U64(x, y) *(volatile uint64_t*)(base + (x)) = __builtin_bswap64(y)
+#define PPC_STORE_U64(x, y) PPC_GUEST_STORE(uint64_t, base + (x), __builtin_bswap64(y))
 #endif
 
 // MMIO Store handling is completely reliant on being preeceded by eieio.

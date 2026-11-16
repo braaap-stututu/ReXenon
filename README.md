@@ -90,21 +90,35 @@ Macro|Default|Use
 `PPC_SWITCH_MISS(address, index)`|`__builtin_unreachable()`|A jump-table index past the table.
 `PPC_INDIRECT_MISS(address)`|`__builtin_trap()`|An indirect call to an unknown address (with `PPC_CHECK_INDIRECT_CALLS`).
 `PPC_FUNC_TABLE_BASE`|end of the image|Where the indirect-call table lives (see `function_table_address`).
+`PPC_GUEST_LOAD(T, p)`, `PPC_GUEST_STORE(T, p, v)`|relaxed atomics|Scalar guest memory accesses (see above). `PPC_VOLATILE_GUEST_ACCESS` makes them `volatile`.
+`PPC_GUEST_VLOAD(p)`, `PPC_GUEST_VSTORE(p, v)`|`volatile` 16-byte access|Vector guest memory accesses.
 
-### What it doesn't do: run faster
+### Guest memory accesses that don't slow down the code around them
 
-The output runs at the same speed as XenonRecomp's. ReXenon has options that remove work: empty-function
-calls, return-address stores and register save/restore calls. In FM2 on a CPU-bound FX-8350, builds with
-these options on measured within about 2% of XenonRecomp when every exe ran at a fixed load address. Without
-a fixed address, where the hot code landed in memory (each boot under ASLR, or after a relink) moved the
-frame rate by 3 to 10%, more than any codegen change. The options stay in, off by default, for ports that
-want to measure them on other machines.
+XenonRecomp makes every guest load and store `volatile`. clang-cl compiles `volatile` with MSVC semantics, as
+an acquire load or a release store, so the compiler can't keep a register value in a host register across any
+guest access: it stores and reloads the PPC context around each one. ReXenon makes guest accesses relaxed
+atomics instead (`PPC_GUEST_LOAD`/`PPC_GUEST_STORE`). Each access is still made exactly once, at its width and in
+program order, but the context stays in host registers between them. Vector accesses (`lvx`, `stvx`, ...) are
+`volatile` 16-byte accesses, so they can't be merged or skipped either. Guest ordering comes from
+`sync`/`lwsync`/`eieio`, as on the console.
+
+In FM2 on a Ryzen 7 5800X this cuts the main thread's CPU time per frame by about 17% and raises the frame rate
+by 10 to 30%. On an FX-8350, where the main thread is limited by something else, the gain is 1 to 2%. Define
+`PPC_VOLATILE_GUEST_ACCESS` to get XenonRecomp's `volatile` accesses back. On targets where `volatile` gave
+hardware ordering (MSVC-style volatile on ARM64), turn on `hardware_fences`.
+
+The other options that remove work (empty-function calls, return-address stores, register save/restore calls)
+measured within about 2% of XenonRecomp on the FX when every exe ran at a fixed load address. Without a fixed
+address, where the hot code landed in memory (each boot under ASLR, or after a relink) moved the frame rate by
+3 to 10%, more than those changes. They stay in, off by default.
 
 ## Using it
 
 ReXenon uses the same executables (`XenonAnalyse`, `XenonRecomp`), command line and config as XenonRecomp.
 With no new options set, its output differs from XenonRecomp's only in the fixes above, in fewer FP-mode
-switches (it skips them for instructions the mode can't affect), and in the new macros. When switching a
+switches (it skips them for instructions the mode can't affect), in the guest accesses above, and in the new
+macros. When switching a
 port over:
 
 - If the port patched the timebase in the output, define `PPC_MFTB()` instead.

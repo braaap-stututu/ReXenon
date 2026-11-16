@@ -2512,7 +2512,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LDARX:
-        print("\t{}.u64 = *(uint64_t*)(base + ", reserved());
+        print("\t{}.u64 = PPC_GUEST_LOAD(uint64_t, base + ", reserved());
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
         println("{}.u32);", r(insn.operands[2]));
@@ -2614,10 +2614,10 @@ bool Recompiler::Recompile(
     case PPC_INST_LVXL128:
         // NOTE: for endian swapping, we reverse the whole vector instead of individual elements.
         // this is accounted for in every instruction (eg. dp3 sums yzw instead of xyz)
-        print("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*)(base + ((", v(insn.operands[0]));
+        print("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_shuffle_epi8(PPC_GUEST_VLOAD(base + ((", v(insn.operands[0]));
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
-        println("{}.u32) & ~0xF))), simde_mm_load_si128((simde__m128i*)VectorMaskL)));", r(insn.operands[2]));
+        println("{}.u32) & ~0xF)), simde_mm_load_si128((simde__m128i*)VectorMaskL)));", r(insn.operands[2]));
         break;
 
     case PPC_INST_LVLX:
@@ -2628,7 +2628,7 @@ bool Recompiler::Recompile(
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
         println("{}.u32;", r(insn.operands[2]));
-        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*)(base + ({}.u32 & ~0xF))), simde_mm_load_si128((simde__m128i*)&VectorMaskL[({}.u32 & 0xF) * 16])));", v(insn.operands[0]), temp(), temp());
+        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_shuffle_epi8(PPC_GUEST_VLOAD(base + ({}.u32 & ~0xF)), simde_mm_load_si128((simde__m128i*)&VectorMaskL[({}.u32 & 0xF) * 16])));", v(insn.operands[0]), temp(), temp());
         break;
 
     case PPC_INST_LVRX:
@@ -2639,7 +2639,7 @@ bool Recompiler::Recompile(
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
         println("{}.u32;", r(insn.operands[2]));
-        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, {}.u32 & 0xF ? simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*)(base + ({}.u32 & ~0xF))), simde_mm_load_si128((simde__m128i*)&VectorMaskR[({}.u32 & 0xF) * 16])) : simde_mm_setzero_si128());", v(insn.operands[0]), temp(), temp(), temp());
+        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, {}.u32 & 0xF ? simde_mm_shuffle_epi8(PPC_GUEST_VLOAD(base + ({}.u32 & ~0xF)), simde_mm_load_si128((simde__m128i*)&VectorMaskR[({}.u32 & 0xF) * 16])) : simde_mm_setzero_si128());", v(insn.operands[0]), temp(), temp(), temp());
         break;
 
     case PPC_INST_LVSL:
@@ -2668,7 +2668,7 @@ bool Recompiler::Recompile(
         break;
 
     case PPC_INST_LWARX:
-        print("\t{}.u32 = *(uint32_t*)(base + ", reserved());
+        print("\t{}.u32 = PPC_GUEST_LOAD(uint32_t, base + ", reserved());
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
         println("{}.u32);", r(insn.operands[2]));
@@ -3188,10 +3188,10 @@ bool Recompiler::Recompile(
     case PPC_INST_STVXL:
     case PPC_INST_STVX128:
     case PPC_INST_STVXL128:
-        print("\tsimde_mm_store_si128((simde__m128i*)(base + ((");
+        print("\tPPC_GUEST_VSTORE(base + ((");
         if (insn.operands[1] != 0)
             print("{}.u32 + ", r(insn.operands[1]));
-        println("{}.u32) & ~0xF)), simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*)VectorMaskL)));", r(insn.operands[2]), v(insn.operands[0]));
+        println("{}.u32) & ~0xF), simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*)VectorMaskL)));", r(insn.operands[2]), v(insn.operands[0]));
         break;
 
     case PPC_INST_STW:
@@ -4706,7 +4706,14 @@ void Recompiler::SaveCurrentOutData(const std::string_view& name)
 
         if (shouldWrite)
         {
+            std::error_code dirError;
+            std::filesystem::create_directories(std::filesystem::path(filePath).parent_path(), dirError);
             f = fopen(filePath.c_str(), "wb");
+            if (!f)
+            {
+                fmt::println("ERROR: can't write {}", filePath);
+                std::exit(1);
+            }
             fwrite(out.data(), 1, out.size(), f);
             fclose(f);
         }

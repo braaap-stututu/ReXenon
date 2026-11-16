@@ -1,5 +1,5 @@
 ReXenon instruction tests (Xenia's src/xenia/cpu/ppc/testing, instr_*.s)
-Generated 2026-11-14 08:16 in 76 s. Rerun: py -I D:\ReXenon\ReXenonTests\run.py
+Generated 2026-11-16 04:19 in 74 s. Rerun: py -I D:\ReXenon\ReXenonTests\run.py
 
 status                all       hand       _GEN
 pass               142286       2761     139525
