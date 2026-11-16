@@ -11,7 +11,7 @@ which won't work without a runtime behind it. **Making the game work is your res
 
 XenonRecomp is a great base, and ReXenon keeps its design, command line and config format. What it changes
 is what happens when the recompiler meets code it can't handle, how close the instructions are to the
-console, and how much a new game needs set up by hand.
+console, how much a new game needs set up by hand, and how much CPU time the guest memory accesses cost.
 
 ### It fails loudly instead of writing wrong code
 
@@ -118,13 +118,14 @@ address, where the hot code landed in memory (each boot under ASLR, or after a r
 ReXenon uses the same executables (`XenonAnalyse`, `XenonRecomp`), command line and config as XenonRecomp.
 With no new options set, its output differs from XenonRecomp's only in the fixes above, in fewer FP-mode
 switches (it skips them for instructions the mode can't affect), in the guest accesses above, and in the new
-macros. When switching a
-port over:
+macros. When switching a port over:
 
 - If the port patched the timebase in the output, define `PPC_MFTB()` instead.
 - Hook any function the analysis now splits off. FM2 gained one, a second SwitchToFiber copy.
 - The run exits with an error if anything is left unresolved, and it deletes `ppc_recomp.<n>.cpp` files in
-  the output folder that it didn't write.
+  the output folder that it didn't write. It creates the output folder if it's missing (XenonRecomp crashed).
+- Guest accesses are relaxed atomics. If the port's own code relied on the old `volatile` ordering, define
+  `PPC_VOLATILE_GUEST_ACCESS` until it's fixed.
 
 All new options go in `[main]` and are off by default:
 
@@ -159,7 +160,8 @@ run `py -I ReXenonTests/run.py`. It configures and builds the test driver itself
 and failures) and `ReXenonTests/results_all.tsv` (one line per test). `--filter` limits the run to some suites,
 and `--options` runs with recompiler options.
 
-`docs/overnight/LOG.md` has the full record of each change, how it was checked and every measurement.
+`docs/overnight/LOG.md` and `docs/night2/LOG.md` (the guest accesses) have the full record of each change, how
+it was checked and every measurement.
 
 ---
 
@@ -173,7 +175,7 @@ The instructions are directly converted without any effort to make them resemble
 
 A good amount of PPC instructions are implemented, with missing ones primarily being variants of already implemented instructions. Some instructions, like the D3D unpack/pack instructions, do not support all operand types. When a missing case is encountered, a warning is generated, or a debug break is inserted into the converted C++ code.
 
-The instruction implementations operate on little-endian values. However, since the Xbox 360 is a big-endian machine, the memory load instructions swap endianness when reading values, and memory store instructions reverse it to big-endian before writing. All the memory loads and stores are marked volatile to prevent Clang from doing unsafe code reordering.
+The instruction implementations operate on little-endian values. However, since the Xbox 360 is a big-endian machine, the memory load instructions swap endianness when reading values, and memory store instructions reverse it to big-endian before writing. All the memory loads and stores are marked volatile to prevent Clang from doing unsafe code reordering. (In ReXenon they are relaxed atomics instead; see "Guest memory accesses" above.)
 
 Vector registers' endianness handling is more complicated. Instead of swapping individual 32-bit elements, the recompiler chooses to reverse the entire 16-byte vector. Instructions must account for this reversed order, such as using the WZY components instead of XYZ in dot products or requiring reversed arguments for vector pack instructions.
 
@@ -283,7 +285,7 @@ Property|Description
 file_path|Path to the XEX file.
 patch_file_path|Path to the XEXP file. This is not required if the game has no title updates.
 patched_file_path|Path to the patched XEX file. XenonRecomp will create this file automatically if it is missing and reuse it in subsequent recompilations. It does nothing if no XEXP file is specified. You can pass this output file to XenonAnalyse.
-out_directory_path|Path to the directory that will contain the output C++ code. This directory must exist before running the recompiler.
+out_directory_path|Path to the directory that will contain the output C++ code. XenonRecomp needs it to exist; ReXenon creates it.
 switch_table_file_path|Path to the TOML file containing the jump table definitions. The recompiler uses this file to convert jump tables to real switch cases.
 
 #### Optimizations
