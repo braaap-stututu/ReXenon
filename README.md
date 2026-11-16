@@ -1,12 +1,157 @@
-# XenonRecomp
+# ReXenon
 
-XenonRecomp is a tool that converts Xbox 360 executables into C++ code, which can then be recompiled for any platform.
+ReXenon converts Xbox 360 executables into C++ code that can be compiled for any platform. It is a fork of
+hedge-dev's [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) (MIT) and builds the game code of the
+[Forza Motorsport 2 PC port](https://github.com/zer0ducksgiven/Forza-Motorsport-2-ReGPU).
 
-This project was heavily inspired by [N64: Recompiled](https://github.com/N64Recomp/N64Recomp), a similar tool for N64 executables.
+**DISCLAIMER:** like XenonRecomp, ReXenon does not provide a runtime. It only converts the game code to C++,
+which won't work without a runtime behind it. **Making the game work is your responsibility.**
 
-**DISCLAIMER:** This project does not provide a runtime implementation. It only converts the game code to C++, which is not going to function correctly without a runtime backing it. **Making the game work is your responsibility.**
+## Why use it instead of XenonRecomp
 
-## Implementation Details
+XenonRecomp is a great base, and ReXenon keeps its design, command line and config format. What it changes
+is what happens when the recompiler meets code it can't handle, how close the instructions are to the
+console, and how much a new game needs set up by hand.
+
+### It fails loudly instead of writing wrong code
+
+When XenonRecomp meets an instruction it can't recompile, it prints a message, leaves only a disassembly
+comment where the code should be, and keeps going. A call or branch to an address it doesn't know is quieter
+still: it becomes a `// ERROR` comment in the output, usually followed by a `return`, with no message at all.
+Either way the output still compiles, the run still succeeds, and the game misbehaves later, far from the
+cause.
+
+ReXenon writes `PPC_UNIMPLEMENTED(address, what)` or `PPC_UNRESOLVED_BRANCH(from, to)` there, which trap by
+default. It lists every problem at the end of the run and exits with an error unless you set
+`allow_unresolved = true`. A clean run means every instruction was recompiled.
+
+### The instructions are closer to the console
+
+ReXenon builds and runs Xenia's PowerPC instruction tests (`ReXenonTests`, 170,448 cases); 142,286 pass. Most
+of the 28,161 that still fail involve NaN inputs or differ only in the CR bits; a smaller number are in the
+estimate instructions (`vrefp`, `vrsqrtefp`, `fres`) and in `vmaddfp`/`vnmsubfp`/`vsl`/`vsr` with ordinary
+values. Fixes over XenonRecomp include:
+
+- Every scalar instruction the tests use, and 47 vector instructions XenonRecomp didn't have (compares,
+  integer max/min, saturating adds and packs, averages, rotates and shifts, VMX128 forms). `vmaxfp`/`vminfp`
+  handle NaN and signed zero as VMX does, and vector record forms set cr6.
+- `vpkd3d128` for types 0-5 with packs 1-3, matching Xenia (type 6 and pack 0 still trap as unimplemented).
+  XenonRecomp's FLOAT16_4 pack read its source after overwriting it when source and destination were the
+  same register; FM2's shipped code had 4 such packs writing garbage.
+- `dcbz` clears the whole 128-byte cache line (XenonRecomp cleared 32 bytes).
+- `fctid`/`fctidz` saturate at exactly 2^63. `mfocrf` and `mtfsf` use their field masks.
+- Divides by zero and overflowing divides give 0 instead of crashing the host. PowerPC leaves the result
+  undefined, and Xenia also uses 0.
+- Jump tables switch on the low 32 bits of the register, as 32-bit guest code expects.
+- Conditional calls (`bcl`, `beql`, `bnectrl` and friends) are recompiled, setting LR on both paths, and
+  `blrl` calls through LR. XenonRecomp reported the first as unrecognized instructions and emitted a debug
+  trap for the second.
+- A function that runs off its end into the next one becomes a tail call. XenonRecomp's version cut PGR4's
+  `memset` short, so it lost the last 1 to 3 bytes.
+- The XEX loader allocates the full image for basic-compressed executables (XenonRecomp's buffer could end
+  short of the size it reports).
+
+### Less to set up for a new game
+
+XenonRecomp finds most functions from `.pdata` and `bl` targets, but it gets some wrong: functions with jump
+tables, C++ functions whose exception-handler code it takes for the end of the function, and exception data
+in front of functions, which it decodes as code. Ports fix these by hand with a `functions` list and
+`invalid_instructions` entries (Forza Motorsport 2 had 28, Project Gotham Racing 4 had 262). ReXenon finds
+most of them itself:
+
+- Exception data in front of functions (`.pdata` entries with the exception flag) is skipped automatically.
+- A branch into the middle of another function, right after code that never falls through, starts a new
+  function there.
+- `auto_switch_tables = true` finds and checks jump tables at load time, so the switch table file only has to
+  list the ones the patterns miss.
+- `data_function_starts = true` also starts a function at code addresses stored in `.rdata` or `.data` that
+  sit where a function would start (after `blr`, padding or an unconditional `b`). It's a safety net so a
+  function reached only through a vtable or callback can't be merged into its neighbour.
+- `emit_analysis_path` writes the functions and switch tables the analysis found as config files, so a port
+  can freeze them. The round trip gives identical output.
+
+Skipping exception data alone took PGR4 from 161 problems to 3 with no config change; splitting at stranded
+branch targets fixed the last 3. With their hand-written function lists removed, FM2 and PGR4 both generate
+with no analysis problems (FM2 had 328 before, PGR4 3,215). Neither game has been played that way yet, so the
+FM2 port still ships with its list.
+
+### More hooks for the port
+
+The output calls macros a port can define before including `ppc_context.h`. Most defaults produce the same
+code XenonRecomp did. The exceptions: the barriers are now compiler barriers where XenonRecomp emitted
+nothing, and the two failure hooks trap where XenonRecomp printed a message and kept going.
+
+Macro|Default|Use
+-|-|-
+`PPC_MFTB()`|`__rdtsc()`|The timebase. FM2 maps it to the console's 49.875 MHz clock.
+`PPC_SYNC()`, `PPC_LWSYNC()`, `PPC_EIEIO()`, `PPC_ISYNC()`|compiler barriers|Memory barriers. With `hardware_fences = true`, `sync` becomes a full fence and `lwsync`/`eieio` acquire-release fences; `isync` stays a compiler barrier.
+`PPC_TRAP(address)`|nothing|Trap instructions (`tw`, `td` and the immediate forms).
+`PPC_UNIMPLEMENTED(address, what)`, `PPC_UNRESOLVED_BRANCH(from, to)`|`__builtin_trap()`|See above.
+`PPC_SWITCH_MISS(address, index)`|`__builtin_unreachable()`|A jump-table index past the table.
+`PPC_INDIRECT_MISS(address)`|`__builtin_trap()`|An indirect call to an unknown address (with `PPC_CHECK_INDIRECT_CALLS`).
+`PPC_FUNC_TABLE_BASE`|end of the image|Where the indirect-call table lives (see `function_table_address`).
+
+### What it doesn't do: run faster
+
+The output runs at the same speed as XenonRecomp's. ReXenon has options that remove work: empty-function
+calls, return-address stores and register save/restore calls. In FM2 on a CPU-bound FX-8350, builds with
+these options on measured within about 2% of XenonRecomp when every exe ran at a fixed load address. Without
+a fixed address, where the hot code landed in memory (each boot under ASLR, or after a relink) moved the
+frame rate by 3 to 10%, more than any codegen change. The options stay in, off by default, for ports that
+want to measure them on other machines.
+
+## Using it
+
+ReXenon uses the same executables (`XenonAnalyse`, `XenonRecomp`), command line and config as XenonRecomp.
+With no new options set, its output differs from XenonRecomp's only in the fixes above, in fewer FP-mode
+switches (it skips them for instructions the mode can't affect), and in the new macros. When switching a
+port over:
+
+- If the port patched the timebase in the output, define `PPC_MFTB()` instead.
+- Hook any function the analysis now splits off. FM2 gained one, a second SwitchToFiber copy.
+- The run exits with an error if anything is left unresolved, and it deletes `ppc_recomp.<n>.cpp` files in
+  the output folder that it didn't write.
+
+All new options go in `[main]` and are off by default:
+
+Option|What it does
+-|-
+`allow_unresolved`|Finish with exit code 0 even when unimplemented instructions or unresolved branches are left.
+`auto_switch_tables`|Find jump tables at load time. Entries in `switch_table_file_path` take priority.
+`data_function_starts`|Start functions at code addresses stored in data sections (see above).
+`emit_analysis_path`|Folder (relative to the config) to write the found functions and switch tables to.
+`elide_empty_functions`|Leave out calls to functions whose whole body is `blr`. List the ones the port hooks in `keep_functions`.
+`elide_return_lr`|Don't store LR for an `mtlr` directly before a `blr`. With `inline_register_thunks`, also skip the LR store on a `bl` to an inlined save/restore helper, unless the function reads LR later. Makes LR in crash logs stale.
+`inline_register_thunks`|Recompile the `__savegprlr`/`__restgprlr`/fpr/vmx helpers inline at each call.
+`function_table_address`|Put the indirect-call table at this guest address (the port must commit that memory). If the table is too far away for a 32-bit displacement, the run prints the range of addresses that would fit.
+`chunk_by_address`|Split output files by guest address (e.g. `0x8000`), so a change rebuilds about 10 files, not all 200.
+`exact_estimates`|`frsqrte`/`vrsqrtefp` use the console's lookup tables instead of `1/sqrt`.
+`fused_madd`|`vmaddfp`/`vnmsubfp` use fused multiply-add (only truly fused when the port builds with `-mfma`).
+`hardware_fences`|Real fences for `sync`, `lwsync` and `eieio` (see the macro table).
+
+XenonRecomp's own `non_volatile_as_local` (keep r14-r31, f14-f31, v14-v31 and v64-v127 in locals) is made safe:
+ReXenon finds the functions that read them before writing them and keeps those on the context. The
+configured setjmp/longjmp addresses count as host functions; list more in `context_functions`, and functions
+the port implements in `host_functions`.
+
+Paths in the config are relative to the config file. Absolute paths aren't supported.
+
+### Instruction tests
+
+On Windows, with CMake, Ninja and clang-cl: set `TESTS` at the top of `ReXenonTests/run.py` to your Xenia
+checkout's `src/xenia/cpu/ppc/testing`, and `VCENV` to a script that sets up the Visual C++ environment. Then
+run `py -I ReXenonTests/run.py`. It configures and builds the test driver itself (`-DREXENON_TESTS=ON`, in
+`build-tests`), assembles the tests, recompiles and runs them, and writes `ReXenonTests/results.txt` (summary
+and failures) and `ReXenonTests/results_all.tsv` (one line per test). `--filter` limits the run to some suites,
+and `--options` runs with recompiler options.
+
+`docs/overnight/LOG.md` has the full record of each change, how it was checked and every measurement.
+
+---
+
+The rest of this file is XenonRecomp's own documentation. It still applies to ReXenon.
+
+## XenonRecomp: Implementation Details
 
 ### Instructions
 
